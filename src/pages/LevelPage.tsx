@@ -10,5 +10,5 @@ export function LevelPage() {
     return <p>找不到這個關卡。</p>;
   }
 
-  return <Board level={level} />;
+  return <Board key={level.id} level={level} />;
 }

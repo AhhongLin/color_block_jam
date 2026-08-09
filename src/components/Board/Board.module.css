@@ -20,9 +20,10 @@
 
 .board {
   --cell-size: min(15vw, 64px);
+  --cell-gap: 2px;
   position: relative;
   display: grid;
-  gap: 2px;
+  gap: var(--cell-gap);
 }
 
 .floor {
@@ -32,6 +33,36 @@
 
 .hole {
   visibility: hidden;
+}
+
+/* 一個方塊 = 一個 wrapper，內部子格用固定的相對格位排版，
+   wrapper 本身用 transform 位移到目前的錨點格（左上角）；--drag-offset-x/y
+   是拖曳中即時跟手用的額外像素位移（放開後歸零，交回 --anchor-row/col 決定
+   位置)。如此無論是放開後定位、還是拖曳中跟手，transform 都能平滑 animate。 */
+.blockWrapper {
+  --drag-offset-x: 0px;
+  --drag-offset-y: 0px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  gap: var(--cell-gap);
+  transform: translate(
+    calc(var(--anchor-col) * (var(--cell-size) + var(--cell-gap)) + var(--drag-offset-x)),
+    calc(var(--anchor-row) * (var(--cell-size) + var(--cell-gap)) + var(--drag-offset-y))
+  );
+  transition: transform 160ms ease-out;
+  touch-action: none;
+  cursor: grab;
+}
+
+.blockWrapper:active {
+  cursor: grabbing;
+}
+
+/* 拖曳中直接跟手，不要用 transition 的緩動去追，避免視覺上的延遲感。 */
+.blockWrapper.dragging {
+  transition: none;
 }
 
 .block {
