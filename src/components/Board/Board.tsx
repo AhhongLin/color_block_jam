@@ -1,5 +1,5 @@
-import { Fragment } from "react";
-import type { Level } from "../../types/level";
+import { Fragment, type CSSProperties } from "react";
+import type { Level, Side } from "../../types/level";
 import styles from "./Board.module.css";
 
 interface BoardProps {
@@ -9,6 +9,13 @@ interface BoardProps {
 function cellKey(row: number, col: number) {
   return `${row},${col}`;
 }
+
+const DOOR_STYLE_BY_SIDE: Record<Side, Pick<CSSProperties, "alignSelf" | "justifySelf" | "width" | "height">> = {
+  top: { alignSelf: "start", justifySelf: "center", width: "70%", height: "14%" },
+  bottom: { alignSelf: "end", justifySelf: "center", width: "70%", height: "14%" },
+  left: { alignSelf: "center", justifySelf: "start", width: "14%", height: "70%" },
+  right: { alignSelf: "center", justifySelf: "end", width: "14%", height: "70%" },
+};
 
 // Static rendering only — no drag/slide interaction yet (see ticket 08).
 export function Board({ level }: BoardProps) {
@@ -46,10 +53,7 @@ export function Board({ level }: BoardProps) {
             style={{
               gridRow: door.row + 1,
               gridColumn: door.col + 1,
-              alignSelf: door.side === "top" ? "start" : door.side === "bottom" ? "end" : "center",
-              justifySelf: door.side === "left" ? "start" : door.side === "right" ? "end" : "center",
-              width: door.side === "top" || door.side === "bottom" ? "70%" : "14%",
-              height: door.side === "top" || door.side === "bottom" ? "14%" : "70%",
+              ...DOOR_STYLE_BY_SIDE[door.side],
             }}
           />
         ))}
