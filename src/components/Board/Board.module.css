@@ -1,0 +1,74 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 16px 48px;
+  background: linear-gradient(180deg, #fff3da, #ffe3ea);
+  color: #3a2b1a;
+  font-family:
+    -apple-system,
+    "Segoe UI",
+    "Noto Sans TC",
+    sans-serif;
+}
+
+.title {
+  font-size: 18px;
+  margin: 0 0 20px;
+}
+
+.board {
+  --cell-size: min(15vw, 64px);
+  position: relative;
+  display: grid;
+  gap: 2px;
+}
+
+.floor {
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 10px;
+}
+
+.hole {
+  visibility: hidden;
+}
+
+.block {
+  border-radius: 16px;
+  box-shadow:
+    0 4px 0 rgba(0, 0, 0, 0.18),
+    inset 0 2px 4px rgba(255, 255, 255, 0.5);
+}
+
+.block.red {
+  background: linear-gradient(160deg, #ff8a8a, #e6453f);
+}
+.block.blue {
+  background: linear-gradient(160deg, #8ab4ff, #3b6fe0);
+}
+.block.green {
+  background: linear-gradient(160deg, #8fe0ac, #2fae66);
+}
+.block.yellow {
+  background: linear-gradient(160deg, #ffe08a, #e6b800);
+}
+
+.door {
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 12px 2px currentColor;
+}
+
+.door.red {
+  color: #e6453f;
+}
+.door.blue {
+  color: #3b6fe0;
+}
+.door.green {
+  color: #2fae66;
+}
+.door.yellow {
+  color: #e6b800;
+}

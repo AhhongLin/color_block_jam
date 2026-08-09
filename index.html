@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>Color Block Jam</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // GitHub Pages SPA fallback (see public/404.html): 404.html stashes the
+      // real URL in sessionStorage and bounces here; restore it before React
+      // Router mounts and reads window.location.
+      (function () {
+        var redirect = sessionStorage.redirect;
+        delete sessionStorage.redirect;
+        if (redirect && redirect !== location.href) {
+          history.replaceState(null, "", redirect);
+        }
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
