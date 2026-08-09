@@ -2,7 +2,9 @@ import type { CellCoord } from "../types/level";
 
 export type Direction = "up" | "down" | "left" | "right";
 
-const DIRECTION_DELTA: Record<Direction, CellCoord> = {
+// 方向轉座標增量，slide.ts / exit.ts 共用同一份定義（exit.ts 判斷離場前緣格
+// 時也需要「往這個方向走一步」的意思）。
+export const DIRECTION_DELTA: Record<Direction, CellCoord> = {
   up: [-1, 0],
   down: [1, 0],
   left: [0, -1],

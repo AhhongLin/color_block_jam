@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Board } from "./Board";
 import { sampleLevel } from "../../data/levels";
@@ -223,5 +223,131 @@ describe("Board 拖曳互動", () => {
     firePointerEvent(wrapper, "pointerup", { pointerId: 1, clientX: -50, clientY: -40 });
     expect(wrapper.style.getPropertyValue("--anchor-row")).toBe("0");
     expect(wrapper.style.getPropertyValue("--anchor-col")).toBe("0");
+  });
+});
+
+describe("Board 離場、過關與重設", () => {
+  const OPEN_3X3_CELLS: Level["cells"] = [
+    [0, 0], [0, 1], [0, 2],
+    [1, 0], [1, 1], [1, 2],
+    [2, 0], [2, 1], [2, 2],
+  ];
+
+  beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      width: 180,
+      height: 180,
+      top: 0,
+      left: 0,
+      right: 180,
+      bottom: 180,
+      x: 0,
+      y: 0,
+      toJSON() {},
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("方塊滑到對齊的同色門時會離場消失；過關訊息要等離場動畫播完才顯示", () => {
+    const exitTestLevel: Level = {
+      id: "exit-test",
+      name: "離場測試關卡",
+      cells: [...OPEN_3X3_CELLS],
+      doors: [{ row: 1, col: 2, side: "right", color: "red" }],
+      blocks: [{ id: "a", color: "red", cells: [[1, 0]] }],
+    };
+
+    vi.useFakeTimers();
+    const { container } = render(<Board level={exitTestLevel} />);
+    const wrapper = container.querySelector<HTMLElement>('[data-block-wrapper-id="a"]')!;
+
+    act(() => {
+      firePointerEvent(wrapper, "pointerdown", { pointerId: 1, clientX: 0, clientY: 0 });
+      firePointerEvent(wrapper, "pointerup", { pointerId: 1, clientX: 1000, clientY: 0 });
+    });
+
+    // 動畫還沒播完前，方塊仍短暫留在畫面上（正在淡出滑出），過關訊息也還沒出現
+    // ——要等玩家親眼看到最後一個方塊離開盤面才算過關，不是規則上一結算就跳出。
+    expect(container.querySelector('[data-block-wrapper-id="a"]')).not.toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    // 動畫結束後，方塊完全從畫面上移除，過關訊息才出現。
+    expect(container.querySelector('[data-block-wrapper-id="a"]')).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("過關");
+  });
+
+  it("前緣只有部分對齊同色門時不會離場，只是停在邊界前（撞牆）", () => {
+    const partialDoorLevel: Level = {
+      id: "partial-door-test",
+      name: "部分對齊測試關卡",
+      cells: [...OPEN_3X3_CELLS],
+      // 2 格垂直方塊佔滿 col2 的兩列，但只有 row0 那一格有門。
+      doors: [{ row: 0, col: 2, side: "right", color: "green" }],
+      blocks: [
+        {
+          id: "a",
+          color: "green",
+          cells: [
+            [0, 1],
+            [1, 1],
+          ],
+        },
+      ],
+    };
+
+    const { container } = render(<Board level={partialDoorLevel} />);
+    const wrapper = container.querySelector<HTMLElement>('[data-block-wrapper-id="a"]')!;
+
+    firePointerEvent(wrapper, "pointerdown", { pointerId: 1, clientX: 0, clientY: 0 });
+    firePointerEvent(wrapper, "pointerup", { pointerId: 1, clientX: 1000, clientY: 0 });
+
+    // 沒有離場：方塊還在，只是停在盤面邊界前一格（col2）。
+    expect(container.querySelector('[data-block-wrapper-id="a"]')).not.toBeNull();
+    expect(wrapper.style.getPropertyValue("--anchor-col")).toBe("2");
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("按下「重設關卡」按鈕後，所有方塊回到關卡初始位置", () => {
+    const resetTestLevel: Level = {
+      id: "reset-test",
+      name: "重設測試關卡",
+      cells: [...OPEN_3X3_CELLS],
+      doors: [],
+      blocks: [{ id: "a", color: "red", cells: [[1, 0]] }],
+    };
+
+    const { container } = render(<Board level={resetTestLevel} />);
+    const wrapper = container.querySelector<HTMLElement>('[data-block-wrapper-id="a"]')!;
+
+    firePointerEvent(wrapper, "pointerdown", { pointerId: 1, clientX: 0, clientY: 0 });
+    firePointerEvent(wrapper, "pointerup", { pointerId: 1, clientX: 1000, clientY: 0 });
+    expect(wrapper.style.getPropertyValue("--anchor-col")).toBe("2");
+
+    fireEvent.click(screen.getByRole("button", { name: "重設關卡" }));
+
+    const resetWrapper = container.querySelector<HTMLElement>('[data-block-wrapper-id="a"]')!;
+    expect(resetWrapper.style.getPropertyValue("--anchor-col")).toBe("0");
+    expect(resetWrapper.style.getPropertyValue("--anchor-row")).toBe("1");
+  });
+
+  it("盤面上還有方塊時不顯示過關訊息", () => {
+    const notCompleteLevel: Level = {
+      id: "not-complete-test",
+      name: "尚未過關測試關卡",
+      cells: [...OPEN_3X3_CELLS],
+      doors: [],
+      blocks: [{ id: "a", color: "red", cells: [[1, 0]] }],
+    };
+
+    render(<Board level={notCompleteLevel} />);
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });

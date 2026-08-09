@@ -13,9 +13,45 @@
     sans-serif;
 }
 
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 0 0 12px;
+}
+
 .title {
   font-size: 18px;
-  margin: 0 0 20px;
+  margin: 0;
+}
+
+.resetButton {
+  border: none;
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #7a4a1f;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+}
+
+.resetButton:active {
+  box-shadow: none;
+  transform: translateY(2px);
+}
+
+.completeBanner {
+  margin: 0 0 16px;
+  padding: 8px 20px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #7a4a1f;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.1);
 }
 
 .board {
@@ -63,6 +99,17 @@
 /* 拖曳中直接跟手，不要用 transition 的緩動去追，避免視覺上的延遲感。 */
 .blockWrapper.dragging {
   transition: none;
+}
+
+/* 離場動畫：方塊已經被 exitBlock() 平移到盤面外一格，這裡只負責讓它淡出、
+   停用互動游標，實際從畫面上移除交給 Board.tsx 的 setTimeout。 */
+.blockWrapper.exiting {
+  pointer-events: none;
+  cursor: default;
+  opacity: 0;
+  transition:
+    transform 160ms ease-in,
+    opacity 160ms ease-in;
 }
 
 .block {
