@@ -12,10 +12,12 @@
 - **關卡資料**：手工撰寫的 JSON 關卡檔，先寫幾關範例；不做關卡編輯器。
 - **測試策略**：核心遊戲邏輯（滑動、碰撞、過關判定）之後用 `/tdd` 開發。
 - 「怎麼看/怎麼動」類的問題用 `/prototype` 做低保真原型；其餘決策用 `/grilling`。
+- UI 需要一個「重設關卡」按鈕（因為 MVP 不做死局偵測，玩家卡死時要能自行重來）。
 
 ## Decisions so far
 
-（尚無已結案的 ticket）
+- [核心滑動與碰撞規則精確化](issues/01-core-sliding-collision-rules.md) — 拖曳指定方向滑動；撞方塊只停不推；多格方塊逐格模擬碰撞；離場需整個前緣對齊同色門；MVP 不做死局偵測，改用「重設關卡」按鈕。
+- [視覺美術風格原型](issues/02-visual-art-style-prototype.md) — 選定 Variant B「圓潤活潑」：大圓角糖果色漸層方塊、暖色系盤面、圓角膠囊發光門、路徑地圖式關卡選單（含星級）。原型碼在 throwaway 分支 `prototype/visual-style`。
 
 ## Not yet specified
 
