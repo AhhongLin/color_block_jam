@@ -1,7 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LevelSelect } from "./LevelSelect";
+import { playSound } from "../../audio/sound";
 import type { Level } from "../../types/level";
 
 const testLevels: Level[] = [
@@ -16,6 +17,10 @@ vi.mock("../../data/levels", () => ({
   },
 }));
 
+// jsdom 沒有實作 HTMLMediaElement.play()，mock 掉音效模組避免噪音，順便讓
+// 下面能斷言點擊已解鎖關卡節點時真的觸發了 click 音效。
+vi.mock("../../audio/sound", () => ({ playSound: vi.fn() }));
+
 function renderLevelSelect() {
   return render(
     <MemoryRouter>
@@ -27,6 +32,7 @@ function renderLevelSelect() {
 describe("LevelSelect", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    vi.mocked(playSound).mockClear();
   });
 
   afterEach(() => {
@@ -69,5 +75,11 @@ describe("LevelSelect", () => {
 
     const third = screen.getByLabelText("第 3 關（未解鎖）");
     expect(third.tagName).not.toBe("A");
+  });
+
+  it("點擊已解鎖的關卡節點播放 click 音效", () => {
+    renderLevelSelect();
+    fireEvent.click(screen.getByLabelText("第 1 關"));
+    expect(playSound).toHaveBeenCalledWith("click");
   });
 });

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { levels } from "../../data/levels";
 import { isLevelUnlocked, readCompletedLevelIds } from "../../game/progress";
+import { playSound } from "../../audio/sound";
 import styles from "./LevelSelect.module.css";
 
 // 路徑地圖排版用固定的行高，配合下面的 sine 波動算出每個節點的 x 座標
@@ -73,6 +74,7 @@ export function LevelSelect() {
               style={style}
               aria-label={`${level.name}${completed ? "（已完成）" : ""}`}
               data-level-id={level.id}
+              onClick={() => playSound("click")}
             >
               {completed ? <span className={styles.completeIcon}>✓</span> : <span className={styles.nodeIndex}>{index + 1}</span>}
             </Link>

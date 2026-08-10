@@ -99,10 +99,14 @@ interface Level {
 ## 5. 音效
 
 - MVP **只做互動音效，不做背景音樂**（背景音樂涉及選曲/循環播放/靜音開關，留給之後擴充）。
-- 播放時機僅限：
+- 播放時機：
   1. 方塊離場（滑出同色門）
   2. 過關完成
+  3. 方塊移動
+  4. UI 操作（選單點擊等）
 - 素材來源：免費音效庫（如 [freesound.org](https://freesound.org)）挑選 CC 授權短音效，下載後放進專案的 assets 資料夾，需標註授權條款。
+
+> **實作階段更新（音效觸發範圍）**：issue 03 原本的決策把播放時機限定在「離場」「過關」兩項，明確排除「方塊移動」與「UI 操作」；ticket 12 規格重新納入這兩項，實作階段依 ticket 12 為準，四個時機都做。素材下載自 [Freesound](https://freesound.org)，皆為 CC0 授權，放在 `public/sounds/`（`click.mp3`／`move.mp3`／`exit.mp3`／`complete.mp3`），授權來源記錄在 `public/sounds/ATTRIBUTIONS.md`。播放邏輯在 `src/audio/sound.ts`（`playSound(name)`），元件呼叫端見 `Board.tsx`（移動/離場/過關/重設）與 `LevelSelect.tsx`／`LevelPage.tsx`（選單與返回連結點擊）。
 
 ## 6. 關卡設計
 

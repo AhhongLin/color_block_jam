@@ -2,7 +2,13 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Board } from "./Board";
 import { sampleLevel } from "../../data/levels";
+import { playSound } from "../../audio/sound";
 import type { Level } from "../../types/level";
+
+// jsdom 沒有實作 HTMLMediaElement.play()（呼叫會印一句 "not implemented" 到
+// stderr），跟這裡要測的拖曳/碰撞/過關邏輯無關，直接 mock 掉整個音效模組，
+// 順便讓下面能斷言各個時機真的觸發了對應的音效。
+vi.mock("../../audio/sound", () => ({ playSound: vi.fn() }));
 
 // jsdom 沒有實作全域 PointerEvent（見 https://github.com/jsdom/jsdom/issues/2527），
 // testing-library 的 fireEvent.pointerDown/Up 會 fallback 成一般 Event，
@@ -16,6 +22,10 @@ function firePointerEvent(
   Object.assign(event, { pointerType: "mouse", button: 0, ...init });
   fireEvent(target, event);
 }
+
+beforeEach(() => {
+  vi.mocked(playSound).mockClear();
+});
 
 describe("Board", () => {
   it("renders the level name", () => {
@@ -378,5 +388,110 @@ describe("Board 離場、過關與重設", () => {
 
     render(<Board level={notCompleteLevel} />);
     expect(screen.queryByRole("status")).toBeNull();
+  });
+});
+
+describe("Board 音效（ticket 12）", () => {
+  const OPEN_3X3_CELLS: Level["cells"] = [
+    [0, 0], [0, 1], [0, 2],
+    [1, 0], [1, 1], [1, 2],
+    [2, 0], [2, 1], [2, 2],
+  ];
+
+  beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      width: 180,
+      height: 180,
+      top: 0,
+      left: 0,
+      right: 180,
+      bottom: 180,
+      x: 0,
+      y: 0,
+      toJSON() {},
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("方塊移動時播放 move 音效，撞牆沒有實際移動時不播放", () => {
+    const level: Level = {
+      id: "sound-move-test",
+      name: "移動音效測試關卡",
+      cells: [...OPEN_3X3_CELLS],
+      doors: [],
+      blocks: [{ id: "a", color: "red", cells: [[1, 0]] }],
+    };
+    const { container } = render(<Board level={level} />);
+    const wrapper = container.querySelector<HTMLElement>('[data-block-wrapper-id="a"]')!;
+
+    // 已經貼著左邊界，往左拖不會實際移動，不該播放音效。
+    firePointerEvent(wrapper, "pointerdown", { pointerId: 1, clientX: 0, clientY: 0 });
+    firePointerEvent(wrapper, "pointerup", { pointerId: 1, clientX: -1000, clientY: 0 });
+    expect(playSound).not.toHaveBeenCalled();
+
+    firePointerEvent(wrapper, "pointerdown", { pointerId: 2, clientX: 0, clientY: 0 });
+    firePointerEvent(wrapper, "pointerup", { pointerId: 2, clientX: 1000, clientY: 0 });
+    expect(playSound).toHaveBeenCalledWith("move");
+    expect(playSound).not.toHaveBeenCalledWith("exit");
+  });
+
+  it("方塊離場時播放 exit 音效", () => {
+    const level: Level = {
+      id: "sound-exit-test",
+      name: "離場音效測試關卡",
+      cells: [...OPEN_3X3_CELLS],
+      doors: [{ row: 1, col: 2, side: "right", color: "red" }],
+      blocks: [{ id: "a", color: "red", cells: [[1, 0]] }],
+    };
+    const { container } = render(<Board level={level} />);
+    const wrapper = container.querySelector<HTMLElement>('[data-block-wrapper-id="a"]')!;
+
+    firePointerEvent(wrapper, "pointerdown", { pointerId: 1, clientX: 0, clientY: 0 });
+    firePointerEvent(wrapper, "pointerup", { pointerId: 1, clientX: 1000, clientY: 0 });
+
+    expect(playSound).toHaveBeenCalledWith("exit");
+  });
+
+  it("過關時播放 complete 音效", () => {
+    const level: Level = {
+      id: "sound-complete-test",
+      name: "過關音效測試關卡",
+      cells: [...OPEN_3X3_CELLS],
+      doors: [{ row: 1, col: 2, side: "right", color: "red" }],
+      blocks: [{ id: "a", color: "red", cells: [[1, 0]] }],
+    };
+
+    vi.useFakeTimers();
+    const { container } = render(<Board level={level} />);
+    const wrapper = container.querySelector<HTMLElement>('[data-block-wrapper-id="a"]')!;
+
+    act(() => {
+      firePointerEvent(wrapper, "pointerdown", { pointerId: 1, clientX: 0, clientY: 0 });
+      firePointerEvent(wrapper, "pointerup", { pointerId: 1, clientX: 1000, clientY: 0 });
+    });
+    expect(playSound).not.toHaveBeenCalledWith("complete");
+
+    act(() => {
+      vi.advanceTimersByTime(1200);
+    });
+    expect(playSound).toHaveBeenCalledWith("complete");
+  });
+
+  it("按下「重設關卡」按鈕播放 click 音效", () => {
+    const level: Level = {
+      id: "sound-click-test",
+      name: "點擊音效測試關卡",
+      cells: [...OPEN_3X3_CELLS],
+      doors: [],
+      blocks: [{ id: "a", color: "red", cells: [[1, 0]] }],
+    };
+    render(<Board level={level} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "重設關卡" }));
+    expect(playSound).toHaveBeenCalledWith("click");
   });
 });

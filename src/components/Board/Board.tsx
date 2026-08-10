@@ -3,6 +3,7 @@ import type { CellCoord, Color, Door, Level, LevelBlock, Side } from "../../type
 import { maxSlideSteps, translateCells, type Direction } from "../../game/slide";
 import { clampedStepsFromDistance, updateAxisTracker, type Axis, type AxisTracker } from "../../game/dragDirection";
 import { findExitDirection, isLevelComplete } from "../../game/exit";
+import { playSound } from "../../audio/sound";
 import styles from "./Board.module.css";
 
 interface BoardProps {
@@ -300,7 +301,10 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
   useEffect(() => {
-    if (isComplete) onCompleteRef.current?.();
+    if (isComplete) {
+      playSound("complete");
+      onCompleteRef.current?.();
+    }
   }, [isComplete]);
 
   // 方塊滑到同色門對齊的邊界時觸發：把它從 blocks 移除（往後的碰撞判定視同
@@ -308,6 +312,7 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
   // 一圈粉粒，短暫顯示後移除，做出「滑出盤面、爆成碎屑消失」的動畫，而不是
   // 瞬間憑空不見。
   function exitBlock(block: LevelBlock, direction: Direction) {
+    playSound("exit");
     setBlocks((prev) => prev.filter((b) => b.id !== block.id));
     const exitedCells = translateCells(block.cells, direction, 1);
     setExitingBlocks((prev) => [...prev, { ...block, cells: exitedCells }]);
@@ -327,6 +332,7 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
   }
 
   function resetLevel() {
+    playSound("click");
     clearExitTimers();
     dragRef.current = null;
     setDragOffset(null);
@@ -364,6 +370,7 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
         exitBlock(movedBlock, exitDirection);
         exited = true;
       } else {
+        playSound("move");
         drag.currentCells = nextCells;
         setBlocks((prev) => prev.map((block) => (block.id === drag.blockId ? { ...block, cells: nextCells } : block)));
       }

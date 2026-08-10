@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router-dom";
 import { levels } from "../data/levels";
 import { markLevelCompleted } from "../game/progress";
+import { playSound } from "../audio/sound";
 import { Board } from "../components/Board/Board";
 import styles from "./LevelPage.module.css";
 
@@ -22,7 +23,7 @@ export function LevelPage() {
       level={level}
       onComplete={handleComplete}
       backLink={
-        <Link to="/" className={styles.backLink}>
+        <Link to="/" className={styles.backLink} onClick={() => playSound("click")}>
           ← 選單
         </Link>
       }
