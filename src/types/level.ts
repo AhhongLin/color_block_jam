@@ -1,4 +1,4 @@
-export type Color = "red" | "blue" | "green" | "yellow";
+export type Color = "red" | "blue" | "green" | "yellow" | "pink" | "orange" | "darkgreen" | "purple";
 
 export type Side = "top" | "right" | "bottom" | "left";
 

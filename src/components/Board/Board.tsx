@@ -35,6 +35,10 @@ const COLOR_HEX: Record<Color, string> = {
   blue: "#3b6fe0",
   green: "#2fae66",
   yellow: "#e6b800",
+  pink: "#d94fc0",
+  orange: "#e8842b",
+  darkgreen: "#1f7a3a",
+  purple: "#7c58df",
 };
 
 const BURST_DOTS_PER_CELL = 9;
@@ -524,7 +528,7 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
 
       {isComplete && (
         <p className={styles.completeBanner} role="status">
-          🎉 過關！
+          🎉 過關啦！🎉
         </p>
       )}
 

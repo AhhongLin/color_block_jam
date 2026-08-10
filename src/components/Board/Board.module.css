@@ -73,31 +73,90 @@
   outline-offset: 2px;
 }
 
+/* position: fixed，疊在畫面正中央——過關訊息一出現/消失就佔掉一塊文件
+   流內的空間，會把下面的 .boardFrame 整個往下推、玩家會看到盤面瞬間跳動。
+   改成浮動疊層，出現/消失都不影響任何其他元素的版面位置。 */
+/* 淺黃底色跟盤面格子的米白色太接近、不夠顯眼，改用高飽和的桃紅→橘漸層
+   搭配白色粗邊框（貼紙感），文字用白色 + 深色描邊撐出卡通字體的效果，
+   出場動畫也加大甩動幅度、播完後接一個持續的輕微搖擺，比原本單純的
+   縮放淡入誇張、有生命感。 */
 .completeBanner {
-  margin: 0 0 18px;
-  padding: 10px 26px;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  /* bannerPop 動畫只有 backwards、沒有 forwards，播完後 transform 會回落
+     到這裡的靜態值——一定要跟動畫終幀（也是 bannerWiggle 的起始幀）一致，
+     不然動畫交接的瞬間會跳掉。 */
+  transform: translate(-50%, -50%) rotate(-4deg);
+  z-index: 20;
+  margin: 0;
+  padding: 16px 40px;
   border-radius: 999px;
-  font-size: 16px;
+  font-size: 26px;
   font-weight: 900;
-  color: #6b4226;
-  background: linear-gradient(160deg, #fff6cf, #ffe9a8);
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-shadow:
+    0 2px 0 rgba(151, 34, 90, 0.55),
+    0 4px 10px rgba(151, 34, 90, 0.4);
+  background: linear-gradient(135deg, #ff6fae, #ff9a3c);
+  border: 4px solid #fff;
   box-shadow:
-    0 3px 0 rgba(107, 66, 38, 0.15),
-    0 10px 24px rgba(230, 184, 0, 0.35);
-  animation: bannerPop 480ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+    0 4px 0 rgba(151, 34, 90, 0.35),
+    0 0 0 3px rgba(255, 154, 60, 0.5),
+    0 24px 48px rgba(255, 90, 150, 0.5);
+  pointer-events: none;
+  animation:
+    bannerPop 560ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards,
+    bannerWiggle 1400ms ease-in-out 560ms infinite;
+}
+
+/* 貼紙外圍一圈持續脈動擴散的光暈，呼應方塊離場時 .crumbRing 的手法，讓過關
+   時刻的視覺語言前後一致。 */
+.completeBanner::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  border: 4px solid #ffe066;
+  animation: bannerHalo 1400ms cubic-bezier(0.15, 0.7, 0.3, 1) 560ms infinite;
 }
 
 @keyframes bannerPop {
   0% {
-    transform: scale(0.5);
+    transform: translate(-50%, -50%) scale(0.3) rotate(-20deg);
     opacity: 0;
   }
-  70% {
-    transform: scale(1.08);
+  55% {
+    transform: translate(-50%, -50%) scale(1.18) rotate(8deg);
     opacity: 1;
   }
+  75% {
+    transform: translate(-50%, -50%) scale(0.94) rotate(-9deg);
+  }
   100% {
+    transform: translate(-50%, -50%) scale(1) rotate(-4deg);
+  }
+}
+
+@keyframes bannerWiggle {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1) rotate(-4deg);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.05) rotate(2deg);
+  }
+}
+
+@keyframes bannerHalo {
+  0% {
+    opacity: 0.7;
     transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
   }
 }
 
@@ -126,15 +185,16 @@
   position: relative;
   display: grid;
   gap: var(--cell-gap);
+  background: #b0b2b8;
 }
 
 .floor {
-  background: linear-gradient(180deg, #fffefb, #fff7ea);
+  background: linear-gradient(180deg, #e4e5e8, #d9dade);
   border: 1px solid rgba(255, 255, 255, 0.9);
-  border-radius: 12px;
+  border-radius: 10%;
   box-shadow:
     0 2px 4px rgba(107, 66, 38, 0.18),
-    inset 0 -2px 3px rgba(230, 184, 0, 0.08);
+    inset 0 -2px 3px rgba(0, 0, 0, 0.06);
 }
 
 .hole {
@@ -237,7 +297,7 @@
   position: relative;
   pointer-events: auto;
   background: var(--block-color);
-  border-radius: 24%;
+  border-radius: 10%;
   box-shadow:
     inset 0 3px 0 rgba(255, 255, 255, 0.55),
     inset 0 -7px 10px color-mix(in srgb, var(--block-color) 40%, black 60%),
@@ -291,6 +351,18 @@
 }
 .block.yellow {
   --block-color: #e6b800;
+}
+.block.pink {
+  --block-color: #d94fc0;
+}
+.block.orange {
+  --block-color: #e8842b;
+}
+.block.darkgreen {
+  --block-color: #1f7a3a;
+}
+.block.purple {
+  --block-color: #7c58df;
 }
 
 /* 牆：沿著不規則盤面外圍、沒有門的那一側補一段（座標數學見 Board.tsx 的
@@ -346,6 +418,18 @@
 }
 .door.yellow {
   color: #e6b800;
+}
+.door.pink {
+  color: #d94fc0;
+}
+.door.orange {
+  color: #e8842b;
+}
+.door.darkgreen {
+  color: #1f7a3a;
+}
+.door.purple {
+  color: #7c58df;
 }
 
 /* 離場粉粒：方塊消失瞬間從它所在格子的正中心（Board.tsx 的
