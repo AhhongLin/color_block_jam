@@ -369,7 +369,10 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
       const nextCells = translateCells(drag.currentCells, result.direction, result.steps);
       const draggedBlock = blocks.find((block) => block.id === drag.blockId);
       const movedBlock = draggedBlock && { ...draggedBlock, cells: nextCells };
-      const exitDirection = movedBlock ? findExitDirection(level.cells, level.doors, movedBlock) : null;
+      const otherBlocksCells = blocks.filter((block) => block.id !== drag.blockId).flatMap((block) => block.cells);
+      const exitDirection = movedBlock
+        ? findExitDirection(level.cells, level.doors, movedBlock, otherBlocksCells)
+        : null;
       if (movedBlock && exitDirection) {
         exitBlock(movedBlock, exitDirection);
         exited = true;

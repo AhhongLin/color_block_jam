@@ -86,6 +86,22 @@ describe("canExit", () => {
     expect(canExit(lShapedBoard, partialDoors, block, "right")).toBe(false);
   });
 
+  it("凹形方塊（形狀本身較短的那一格）前面是空地板時，不強求該格也對齊門", () => {
+    // L 形方塊：(1,0)(1,1) 這一排，加上 (2,1) 多凸出去一格——(1,0) 這一列
+    // 因為形狀本身較短，往下永遠會停在 (2,0) 這格空地板前面，不代表方塊還
+    // 沒滑到底；只要 (2,0) 沒被別的方塊佔住，也不影響離場判定。
+    const doors: Door[] = [{ row: 2, col: 1, side: "bottom", color: "red" }];
+    const block = { color: "red" as const, cells: [[1, 0], [1, 1], [2, 1]] as CellCoord[] };
+    expect(canExit(OPEN_3X3, doors, block, "down")).toBe(true);
+  });
+
+  it("凹形方塊該格空地板被其他方塊佔住時，視同撞到東西，不可離場", () => {
+    const doors: Door[] = [{ row: 2, col: 1, side: "bottom", color: "red" }];
+    const block = { color: "red" as const, cells: [[1, 0], [1, 1], [2, 1]] as CellCoord[] };
+    const otherBlocksCells: CellCoord[] = [[2, 0]];
+    expect(canExit(OPEN_3X3, doors, block, "down", otherBlocksCells)).toBe(false);
+  });
+
   it("往左、往上、往下離場時，門的方向與位置也要正確判定", () => {
     const doors: Door[] = [
       { row: 1, col: 0, side: "left", color: "blue" },
@@ -120,6 +136,13 @@ describe("findExitDirection", () => {
     ];
     const block = { color: "blue" as const, cells: [[0, 0]] as CellCoord[] };
     expect(["up", "left"]).toContain(findExitDirection(OPEN_3X3, doors, block));
+  });
+
+  it("otherBlocksCells 會傳遞給 canExit，擋住凹形方塊該離場方向的空地板前緣格", () => {
+    const doors: Door[] = [{ row: 2, col: 1, side: "bottom", color: "red" }];
+    const block = { color: "red" as const, cells: [[1, 0], [1, 1], [2, 1]] as CellCoord[] };
+    expect(findExitDirection(OPEN_3X3, doors, block)).toBe("down");
+    expect(findExitDirection(OPEN_3X3, doors, block, [[2, 0]])).toBeNull();
   });
 });
 
