@@ -79,6 +79,8 @@ interface Level {
 - 門：圓角膠囊造型，帶同色 glow 光暈。
 
 > **實作階段更新（方塊材質）**：另用 `/prototype` 比較過三種方塊「材質」處理法（`.scratch/color-block-jam-web/block-style-prototype.html`，throwaway 原型檔，未進路由），選定 **Variant A「糖果光澤」**取代原本的雙色漸層填色：方塊改為單一 `--block-color` 平色 + 多層 `inset` box-shadow 疊出立體邊緣、左上角疊一層放射狀白色高光模擬玻璃反光。下方色票同步更新為單一實色（原本的雙色漸層僅供 box-shadow 的 `color-mix()` 提亮/加深使用，不再是填色本身）。
+>
+> **實作階段更新（門與牆造型）**：門在 polish 階段（`Board.module.css` 的 `.door`）改為跟牆一樣的**方正箱型**（圓角約為格子尺寸的一小部分），取代原本「圓角膠囊」的描述；同色 glow 光暈（`box-shadow` 疊加 `currentColor` 外擴）維持不變。牆是原型未涵蓋、實作階段新增的視覺元素：沿不規則盤面外圍、沒有門的那一側補上邊框，跟門共用同一套定位算法（`Board.tsx` 的 `edgeStyle()`），材質語言與方塊一致（頂部亮邊 inset + 底部暗邊 inset + 外部落影），但改用黑色系，做出「牆是無機邊框、方塊是有機糖果」的對比。
 
 ### 4.2 參考色票（取自原型，實作時可微調對比度/色盲友善度）
 
