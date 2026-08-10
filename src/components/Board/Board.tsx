@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import type { CellCoord, Color, Door, Level, LevelBlock, Side } from "../../types/level";
 import { maxSlideSteps, translateCells, type Direction } from "../../game/slide";
 import { clampedStepsFromDistance, updateAxisTracker, type Axis, type AxisTracker } from "../../game/dragDirection";
@@ -7,6 +7,10 @@ import styles from "./Board.module.css";
 
 interface BoardProps {
   level: Level;
+  onComplete?: () => void;
+  // 「回選單」連結由呼叫端（LevelPage）決定內容——Board 本身是純遊戲盤面
+  // 元件，不該直接依賴 react-router 的 Link，改成插槽讓呼叫端自己塞。
+  backLink?: ReactNode;
 }
 
 // 位移量小於此門檻視為未拖曳（避免手指/滑鼠微小晃動被誤判成滑動）。
@@ -263,7 +267,7 @@ function blocksWithOverride(blocks: LevelBlock[], blockId: string, cells: CellCo
   return blocks.map((block) => (block.id === blockId ? { ...block, cells } : block));
 }
 
-export function Board({ level }: BoardProps) {
+export function Board({ level, onComplete, backLink }: BoardProps) {
   const [blocks, setBlocks] = useState<LevelBlock[]>(level.blocks);
   const [exitingBlocks, setExitingBlocks] = useState<LevelBlock[]>([]);
   const [bursts, setBursts] = useState<CrumbBurst[]>([]);
@@ -289,6 +293,15 @@ export function Board({ level }: BoardProps) {
   // 但畫面上要等它滑出去、炸開的粉粒也飛散完才顯示「過關」，感覺才像玩家
   // 親眼看到最後一個方塊離開盤面，而不是粉塵還在飛就先跳出過關橫幅。
   const isComplete = isLevelComplete(blocks) && exitingBlocks.length === 0 && bursts.length === 0;
+
+  // 用 ref 存放最新的 onComplete，effect 的依賴只放 isComplete——這樣「進入
+  // 過關狀態」只通知一次，不會因為父層每次 render 傳進來新的箭頭函式參照
+  // 就重複觸發（10 節：過關要寫入 localStorage 一次，不是每次 render 都寫）。
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+  useEffect(() => {
+    if (isComplete) onCompleteRef.current?.();
+  }, [isComplete]);
 
   // 方塊滑到同色門對齊的邊界時觸發：把它從 blocks 移除（往後的碰撞判定視同
   // 它已經不在盤面上），讓它以目前方向再往外滑一步、同時在滑到的位置炸開
@@ -495,6 +508,7 @@ export function Board({ level }: BoardProps) {
   return (
     <div className={styles.page}>
       <div className={styles.header}>
+        {backLink}
         <h1 className={styles.title}>{level.name}</h1>
         <button type="button" className={styles.resetButton} onClick={resetLevel}>
           重設關卡

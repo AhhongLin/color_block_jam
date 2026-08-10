@@ -339,6 +339,34 @@ describe("Board 離場、過關與重設", () => {
     expect(resetWrapper.style.getPropertyValue("--anchor-row")).toBe("1");
   });
 
+  it("過關時呼叫 onComplete 一次；過關前不會呼叫", () => {
+    const exitTestLevel: Level = {
+      id: "exit-oncomplete-test",
+      name: "過關回呼測試關卡",
+      cells: [...OPEN_3X3_CELLS],
+      doors: [{ row: 1, col: 2, side: "right", color: "red" }],
+      blocks: [{ id: "a", color: "red", cells: [[1, 0]] }],
+    };
+
+    vi.useFakeTimers();
+    const onComplete = vi.fn();
+    const { container } = render(<Board level={exitTestLevel} onComplete={onComplete} />);
+    const wrapper = container.querySelector<HTMLElement>('[data-block-wrapper-id="a"]')!;
+
+    act(() => {
+      firePointerEvent(wrapper, "pointerdown", { pointerId: 1, clientX: 0, clientY: 0 });
+      firePointerEvent(wrapper, "pointerup", { pointerId: 1, clientX: 1000, clientY: 0 });
+    });
+
+    expect(onComplete).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(1200);
+    });
+
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
   it("盤面上還有方塊時不顯示過關訊息", () => {
     const notCompleteLevel: Level = {
       id: "not-complete-test",

@@ -1,0 +1,125 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 16px 56px;
+  background:
+    radial-gradient(60% 50% at 12% 0%, rgba(255, 200, 140, 0.5), transparent 60%),
+    radial-gradient(55% 45% at 100% 15%, rgba(255, 170, 205, 0.45), transparent 60%),
+    linear-gradient(180deg, #fff6e6, #ffdcea);
+  color: #6b4226;
+  font-family:
+    "Noto Sans TC",
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+}
+
+.title {
+  margin: 0 0 24px;
+  padding: 10px 26px;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  color: #6b4226;
+  background: #fffdf8;
+  border-radius: 999px;
+  box-shadow:
+    0 3px 0 rgba(107, 66, 38, 0.15),
+    0 8px 16px rgba(107, 66, 38, 0.14);
+}
+
+/* 路徑地圖本體：寬度固定、高度依關卡數量算出（見 LevelSelect.tsx 的
+   ROW_HEIGHT），節點跟連接線都用絕對定位排在裡面，座標系統共用同一組
+   nodeCenter() 算式，兩者才會對得齊。 */
+.map {
+  position: relative;
+  width: min(100%, 420px);
+}
+
+.pathLine {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.pathLine polyline {
+  stroke: #f0b96a;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 2 10;
+  vector-effect: non-scaling-stroke;
+}
+
+/* 圓形關卡節點，材質語言跟 Board 的方塊一致（頂部亮邊 + 底部暗邊 inset +
+   外部落影），維持整體視覺系統一致。 */
+.node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 22px;
+  font-weight: 900;
+  color: #fff;
+  text-decoration: none;
+  background: linear-gradient(160deg, #ffb199, #ff7a5c);
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -7px 10px rgba(180, 60, 30, 0.45),
+    0 3px 0 #d85a3e,
+    0 10px 18px rgba(216, 90, 62, 0.35);
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.node:hover {
+  transform: translate(-50%, -50%) translateY(-2px);
+}
+
+.node:active {
+  transform: translate(-50%, -50%) translateY(2px);
+}
+
+.node.completed {
+  background: linear-gradient(160deg, #fff6cf, #ffe9a8);
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -7px 10px rgba(200, 150, 0, 0.35),
+    0 3px 0 #d8a400,
+    0 10px 18px rgba(230, 184, 0, 0.35);
+}
+
+.completeIcon {
+  color: #a86a00;
+  font-size: 30px;
+}
+
+/* 未解鎖：灰階、不可點擊——用 div 而不是 Link，點擊天生沒有導航行為，不需要
+   另外攔截 click 事件。 */
+.node.locked {
+  cursor: not-allowed;
+  background: linear-gradient(160deg, #d9d2c8, #bdb3a5);
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -7px 10px rgba(90, 80, 65, 0.35),
+    0 3px 0 #9a9082,
+    0 6px 12px rgba(90, 80, 65, 0.25);
+  filter: grayscale(0.6);
+}
+
+.node.locked:hover,
+.node.locked:active {
+  transform: translate(-50%, -50%);
+}
+
+.lockIcon {
+  font-size: 22px;
+  opacity: 0.85;
+}
