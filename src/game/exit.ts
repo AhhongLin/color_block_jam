@@ -43,6 +43,17 @@ export function canExit(floorCells: CellCoord[], doors: Door[], block: ExitableB
   });
 }
 
+const ALL_DIRECTIONS: Direction[] = ["up", "down", "left", "right"];
+
+// 離場只看方塊目前的位置有沒有貼齊同色門，跟「剛剛往哪個方向滑」無關：
+// 一次移動可能同時讓某一側貼齊邊界，即使那一側不是這次滑動的方向，也該
+// 離場（例如先往右滑一格對齊右側門柱，下一步往下滑到底時，只要下側也貼齊
+// 同色門就該離場，不需要玩家再多滑一步）。依序試 4 個方向，回傳第一個判定
+// 可以離場的方向（離場動畫要往哪個方向滑出用得到），都不行就回傳 null。
+export function findExitDirection(floorCells: CellCoord[], doors: Door[], block: ExitableBlock): Direction | null {
+  return ALL_DIRECTIONS.find((direction) => canExit(floorCells, doors, block, direction)) ?? null;
+}
+
 // spec.md 2.5：盤面上所有方塊都離場即過關。
 export function isLevelComplete(blocks: readonly unknown[]): boolean {
   return blocks.length === 0;

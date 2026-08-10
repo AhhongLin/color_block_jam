@@ -3,13 +3,16 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 24px 16px 48px;
-  background: linear-gradient(180deg, #fff3da, #ffe3ea);
-  color: #3a2b1a;
+  padding: 32px 16px 56px;
+  background:
+    radial-gradient(60% 50% at 12% 0%, rgba(255, 200, 140, 0.5), transparent 60%),
+    radial-gradient(55% 45% at 100% 15%, rgba(255, 170, 205, 0.45), transparent 60%),
+    linear-gradient(180deg, #fff6e6, #ffdcea);
+  color: #6b4226;
   font-family:
+    "Noto Sans TC",
     -apple-system,
     "Segoe UI",
-    "Noto Sans TC",
     sans-serif;
 }
 
@@ -17,41 +20,104 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
   gap: 12px;
-  margin: 0 0 12px;
+  margin: 0 0 18px;
 }
 
 .title {
-  font-size: 18px;
   margin: 0;
+  padding: 8px 22px;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  color: #6b4226;
+  background: #fffdf8;
+  border-radius: 999px;
+  box-shadow:
+    0 3px 0 rgba(107, 66, 38, 0.15),
+    0 8px 16px rgba(107, 66, 38, 0.14);
 }
 
 .resetButton {
   border: none;
   border-radius: 999px;
-  padding: 6px 16px;
+  padding: 8px 18px;
+  font-family: inherit;
   font-size: 13px;
-  font-weight: 600;
-  color: #7a4a1f;
-  background: rgba(255, 255, 255, 0.7);
-  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.12);
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(160deg, #ffb199, #ff7a5c);
+  box-shadow:
+    0 3px 0 #d85a3e,
+    0 8px 16px rgba(216, 90, 62, 0.35);
   cursor: pointer;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.resetButton:hover {
+  transform: translateY(-1px);
 }
 
 .resetButton:active {
-  box-shadow: none;
   transform: translateY(2px);
+  box-shadow:
+    0 1px 0 #d85a3e,
+    0 3px 8px rgba(216, 90, 62, 0.3);
+}
+
+.resetButton:focus-visible {
+  outline: 3px solid #6b4226;
+  outline-offset: 2px;
 }
 
 .completeBanner {
-  margin: 0 0 16px;
-  padding: 8px 20px;
+  margin: 0 0 18px;
+  padding: 10px 26px;
   border-radius: 999px;
-  font-size: 15px;
-  font-weight: 700;
-  color: #7a4a1f;
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.1);
+  font-size: 16px;
+  font-weight: 900;
+  color: #6b4226;
+  background: linear-gradient(160deg, #fff6cf, #ffe9a8);
+  box-shadow:
+    0 3px 0 rgba(107, 66, 38, 0.15),
+    0 10px 24px rgba(230, 184, 0, 0.35);
+  animation: bannerPop 480ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
+@keyframes bannerPop {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* 盤面的「托盤」外框——padding/邊框/陰影都放在這裡，.board 本身維持不帶
+   padding/border，因為 Board.tsx 用 .board 的 getBoundingClientRect() 換算
+   每一格的實際像素間距，多算進去的 padding 會讓拖曳距離跟畫面對不齊。 */
+.boardFrame {
+  /* 門會凸出格子外面（凸出量為 --cell-size 的 22%，見 Board.tsx 的
+     BOUNDARY_THICKNESS/edgeStyle()），padding 要留夠空間讓它露出來、
+     不被托盤邊緣裁掉。 */
+  padding: 34px;
+  border-radius: 32px;
+  /* 比格子本身深一階的焦糖色，讓白色格子能從托盤裡「浮」出來，而不是跟
+     托盤背景融在一起。 */
+  background: linear-gradient(180deg, #ffe2ae, #ffd394);
+  border: 1px solid #f0b96a;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5) inset,
+    0 20px 40px -14px rgba(107, 66, 38, 0.35),
+    0 2px 0 rgba(107, 66, 38, 0.08);
 }
 
 .board {
@@ -63,8 +129,12 @@
 }
 
 .floor {
-  background: rgba(255, 255, 255, 0.55);
-  border-radius: 10px;
+  background: linear-gradient(180deg, #fffefb, #fff7ea);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 12px;
+  box-shadow:
+    0 2px 4px rgba(107, 66, 38, 0.18),
+    inset 0 -2px 3px rgba(230, 184, 0, 0.08);
 }
 
 .hole {
@@ -74,7 +144,16 @@
 /* 一個方塊 = 一個 wrapper，內部子格用固定的相對格位排版，
    wrapper 本身用 transform 位移到目前的錨點格（左上角）；--drag-offset-x/y
    是拖曳中即時跟手用的額外像素位移（放開後歸零，交回 --anchor-row/col 決定
-   位置)。如此無論是放開後定位、還是拖曳中跟手，transform 都能平滑 animate。 */
+   位置)。如此無論是放開後定位、還是拖曳中跟手，transform 都能平滑 animate。
+
+   wrapper 的尺寸是整個形狀的「bounding box」（boundingBox() 算出的矩形範圍），
+   不是形狀本身——L 形這類凹形方塊，bounding box 裡一定有格子沒有實際的
+   .block 子元素。若 wrapper 本身可以接收 pointer 事件，那些「空」格會蓋在
+   別的方塊上面搶走它的拖曳判定（例如 L 形方塊凹進去的那格如果剛好疊到隔壁
+   方塊，點隔壁方塊會誤判成拖到這個 L 形方塊）。所以 wrapper 本身關閉
+   pointer-events，只由下面 .block 各自的子格重新打開——事件仍會從 .block
+   往上冒泡到 wrapper 的 React handler，pointer-events: none 只影響「這個
+   元素能不能被命中」，不影響事件從命中到的子元素往上冒泡。 */
 .blockWrapper {
   --drag-offset-x: 0px;
   --drag-offset-y: 0px;
@@ -89,6 +168,7 @@
   );
   transition: transform 160ms ease-out;
   touch-action: none;
+  pointer-events: none;
   cursor: grab;
 }
 
@@ -96,46 +176,163 @@
   cursor: grabbing;
 }
 
-/* 拖曳中直接跟手，不要用 transition 的緩動去追，避免視覺上的延遲感。 */
+/* 拖曳中直接跟手，不要用 transition 的緩動去追，避免視覺上的延遲感。
+   spec.md 4.1：拖曳中的方塊放大約 6% 並帶白色外框光暈——同一個 transform
+   宣告要整個覆寫（translate 算式照抄一份），CSS 沒辦法在既有 transform 上
+   再疊加一段。 */
 .blockWrapper.dragging {
   transition: none;
+  transform: translate(
+      calc(var(--anchor-col) * (var(--cell-size) + var(--cell-gap)) + var(--drag-offset-x)),
+      calc(var(--anchor-row) * (var(--cell-size) + var(--cell-gap)) + var(--drag-offset-y))
+    )
+    scale(1.06);
+  z-index: 5;
 }
 
-/* 離場動畫：方塊已經被 exitBlock() 平移到盤面外一格，這裡只負責讓它淡出、
-   停用互動游標，實際從畫面上移除交給 Board.tsx 的 setTimeout。 */
+/* 離場動畫：方塊已經被 exitBlock() 平移到盤面外一格，這裡負責滑到那個
+   位置（transform transition）、停用互動游標；方塊本體怎麼消失交給下面
+   .blockWrapper.exiting .block 的 blockPopOut 動畫（炸開感），不是單純
+   淡出。實際從畫面上移除交給 Board.tsx 的 setTimeout。 */
 .blockWrapper.exiting {
   pointer-events: none;
   cursor: default;
-  opacity: 0;
-  transition:
-    transform 160ms ease-in,
-    opacity 160ms ease-in;
+  transition: transform 160ms ease-in;
 }
 
+/* 每一格各自「誇張膨脹→旋轉炸裂」消失，搭配 Board.tsx 同時噴出的 .crumb
+   粉粒跟 .crumbFlash/.crumbRing 衝擊波，做出卡通爆開的效果，不是原本單純
+   的淡出。用 animation（而非 transition）是因為要多段式的縮放/旋轉曲線，
+   CSS transition 只能處理單段緩動。膨脹幅度（1.5 倍）跟旋轉角度都刻意放
+   大，時間拉到 320ms，效果才夠明顯、看得清楚，不會一閃即逝。 */
+.blockWrapper.exiting .block {
+  animation: blockPopOut 460ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+@keyframes blockPopOut {
+  0% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  25% {
+    transform: scale(1.5) rotate(-16deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0) rotate(26deg);
+    opacity: 0;
+  }
+}
+
+/* 方塊材質：原型「Variant A 糖果光澤」的多層 inset 陰影疊出立體邊緣，
+   ::before 再蓋一層放射狀高光模擬玻璃反光。--block-color 由各色 class
+   設定，box-shadow / ::before 都靠 color-mix() 從這一個顏色值算出來，
+   換色只要改 --block-color，不用重寫整組陰影。
+   原型的方塊排列間距是 12px，這兩層非 inset 的陰影（下緣實色 lip +
+   環境陰影）原本的伸出量是為那個間距設計的；盤面格子間距只有
+   --cell-gap（2px），照抄原型數值會讓陰影蓋到下一格甚至下一個方塊，
+   看起來像方塊變「長」了，所以這兩層要縮小到 2px 間距內收得住的量。 */
 .block {
-  border-radius: 16px;
+  --block-color: #cccccc;
+  position: relative;
+  pointer-events: auto;
+  background: var(--block-color);
+  border-radius: 24%;
   box-shadow:
-    0 4px 0 rgba(0, 0, 0, 0.18),
-    inset 0 2px 4px rgba(255, 255, 255, 0.5);
+    inset 0 3px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -7px 10px color-mix(in srgb, var(--block-color) 40%, black 60%),
+    0 1.5px 0 color-mix(in srgb, var(--block-color) 62%, black 38%),
+    0 2px 3px -1px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  animation: blockPopIn 360ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  animation-delay: var(--pop-delay, 0ms);
+}
+
+.block::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 60% 40% at 30% 22%, rgba(255, 255, 255, 0.85), transparent 65%);
+}
+
+@keyframes blockPopIn {
+  0% {
+    transform: scale(0.35);
+    opacity: 0;
+  }
+  65% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.blockWrapper.dragging .block {
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -7px 10px color-mix(in srgb, var(--block-color) 40%, black 60%),
+    0 1.5px 0 color-mix(in srgb, var(--block-color) 62%, black 38%),
+    0 2px 3px -1px rgba(0, 0, 0, 0.45),
+    0 0 0 3px rgba(255, 255, 255, 0.95),
+    0 0 16px 4px rgba(255, 255, 255, 0.75);
 }
 
 .block.red {
-  background: linear-gradient(160deg, #ff8a8a, #e6453f);
+  --block-color: #e6453f;
 }
 .block.blue {
-  background: linear-gradient(160deg, #8ab4ff, #3b6fe0);
+  --block-color: #3b6fe0;
 }
 .block.green {
-  background: linear-gradient(160deg, #8fe0ac, #2fae66);
+  --block-color: #2fae66;
 }
 .block.yellow {
-  background: linear-gradient(160deg, #ffe08a, #e6b800);
+  --block-color: #e6b800;
 }
 
+/* 牆：沿著不規則盤面外圍、沒有門的那一側補一段（座標數學見 Board.tsx 的
+   edgeStyle()），讀起來像圍住格子的實體邊框。跟 .block 一樣用「頂部亮邊
+   inset + 底部暗邊 inset + 外部落影」三層堆出厚度感，色階改成黑色系，
+   維持「牆是無機的邊框」、「方塊是有機的糖果」這組對比。 */
+.wall {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #3a3a3a, #1c1c1c 55%, #000000);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.25),
+    inset 0 -3px 4px rgba(0, 0, 0, 0.5),
+    0 2px 3px -1px rgba(0, 0, 0, 0.45);
+}
+
+/* 門：牆上開的一個長方體開口（座標數學見 Board.tsx 的 edgeStyle()），跟牆
+   一樣是方正的箱型（只是圓角略大一點做出「箱子」感，不是膠囊）。材質跟
+   .block 同款（inset 高光/暗邊 + ::before 放射狀玻璃反光），色彩取
+   currentColor（由 .door.red 等 class 設定），維持跟方塊同色系可辨識。 */
 .door {
-  border-radius: 999px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 10px;
   background: currentColor;
-  box-shadow: 0 0 12px 2px currentColor;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -4px 6px color-mix(in srgb, currentColor 45%, black 55%),
+    0 2px 4px -1px rgba(107, 66, 38, 0.35),
+    0 0 0 2px rgba(255, 255, 255, 0.6),
+    0 0 10px 2px currentColor;
+  overflow: hidden;
+}
+
+.door::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 70% 45% at 50% 20%, rgba(255, 255, 255, 0.8), transparent 65%);
 }
 
 .door.red {
@@ -149,4 +346,99 @@
 }
 .door.yellow {
   color: #e6b800;
+}
+
+/* 離場粉粒：方塊消失瞬間從它所在格子的正中心（Board.tsx 的
+   cellCenterStyle()）炸開一圈小碎粒往外飛散、邊飛邊縮小淡出，做出「爆成
+   粉塵」的卡通感——手法沿用 block-style-prototype.html 的 spark burst
+   （隨機方向/距離在 JS 端算好、寫成 --dx/--dy/--rot/--size 內聯樣式，
+   CSS 只負責照著飛）。.crumbBurst 本身是零尺寸的錨點，粒子用
+   translate(-50%,-50%) 把自己中心對齊錨點再往外飛。 */
+.crumbBurst {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.crumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--size, 6px);
+  height: var(--size, 6px);
+  border-radius: 30%;
+  background: var(--dot-color, #fff);
+  box-shadow: 0 0 6px 1px color-mix(in srgb, var(--dot-color, #fff) 55%, transparent);
+  transform: translate(-50%, -50%);
+  animation: crumbFly 950ms cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
+}
+
+@keyframes crumbFly {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) translate(0, 0) rotate(0deg) scale(1);
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(0.3);
+  }
+}
+
+/* 整塊方塊共用一次的閃光＋衝擊波，跟上面逐格噴發的 .crumb 疊在一起，強化
+   爆炸的「第一擊」——手法一樣沿用 block-style-prototype.html 的
+   spark .flash / .ring。 */
+.crumbFlash {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--cell-size);
+  height: var(--cell-size);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.95) 0%, var(--dot-color, #fff) 45%, transparent 72%);
+  transform: translate(-50%, -50%) scale(0.2);
+  opacity: 0;
+  animation: crumbFlash 480ms cubic-bezier(0.1, 0.7, 0.3, 1) forwards;
+}
+
+@keyframes crumbFlash {
+  0% {
+    opacity: 0.95;
+    transform: translate(-50%, -50%) scale(0.2);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(2.4);
+  }
+}
+
+.crumbRing {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--cell-size);
+  height: var(--cell-size);
+  border-radius: 50%;
+  border: 4px solid var(--dot-color, #fff);
+  transform: translate(-50%, -50%) scale(0.3);
+  opacity: 0;
+  animation: crumbRing 700ms cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
+}
+
+@keyframes crumbRing {
+  0% {
+    opacity: 0.9;
+    transform: translate(-50%, -50%) scale(0.3);
+    border-width: 5px;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(2.6);
+    border-width: 0.5px;
+  }
 }

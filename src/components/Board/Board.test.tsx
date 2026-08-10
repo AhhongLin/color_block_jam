@@ -270,13 +270,14 @@ describe("Board 離場、過關與重設", () => {
       firePointerEvent(wrapper, "pointerup", { pointerId: 1, clientX: 1000, clientY: 0 });
     });
 
-    // 動畫還沒播完前，方塊仍短暫留在畫面上（正在淡出滑出），過關訊息也還沒出現
-    // ——要等玩家親眼看到最後一個方塊離開盤面才算過關，不是規則上一結算就跳出。
+    // 動畫還沒播完前，方塊仍短暫留在畫面上（正在滑出、炸開），過關訊息也還沒
+    // 出現——要等玩家親眼看到最後一個方塊離開盤面、粉粒飛散完才算過關，不是
+    // 規則上一結算就跳出。
     expect(container.querySelector('[data-block-wrapper-id="a"]')).not.toBeNull();
     expect(screen.queryByRole("status")).toBeNull();
 
     act(() => {
-      vi.advanceTimersByTime(200);
+      vi.advanceTimersByTime(1200);
     });
 
     // 動畫結束後，方塊完全從畫面上移除，過關訊息才出現。

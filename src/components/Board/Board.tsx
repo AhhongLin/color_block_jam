@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
-import type { CellCoord, Level, LevelBlock, Side } from "../../types/level";
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import type { CellCoord, Color, Door, Level, LevelBlock, Side } from "../../types/level";
 import { maxSlideSteps, translateCells, type Direction } from "../../game/slide";
 import { clampedStepsFromDistance, updateAxisTracker, type Axis, type AxisTracker } from "../../game/dragDirection";
-import { canExit, isLevelComplete } from "../../game/exit";
+import { findExitDirection, isLevelComplete } from "../../game/exit";
 import styles from "./Board.module.css";
 
 interface BoardProps {
@@ -12,9 +12,90 @@ interface BoardProps {
 // 位移量小於此門檻視為未拖曳（避免手指/滑鼠微小晃動被誤判成滑動）。
 const DRAG_THRESHOLD_PX = 12;
 
-// 方塊離場時，讓它視覺上再往外滑一步、淡出消失的動畫時長。要跟
-// Board.module.css 的 `.blockWrapper` transition 時長（160ms）一致。
-const EXIT_ANIMATION_MS = 160;
+// 方塊離場時，讓它視覺上再往外滑一步、同時炸開成粉粒消失的動畫時長。
+// EXIT_ANIMATION_MS 要跟 Board.module.css 的 `.blockWrapper` transition
+// 時長、`.blockWrapper.exiting .block` 的 blockPopOut 動畫時長一致；
+// BURST_ANIMATION_MS 要跟 `.crumb` 的 crumbFly 動畫時長一致——粉粒要比
+// 方塊本體晚一點消失，才有「爆開的粉塵還飄在空中」的尾韻，不是兩者同時
+// 瞬間消失。
+const EXIT_ANIMATION_MS = 460;
+const BURST_ANIMATION_MS = 1050;
+
+// 跟 Board.module.css 的 .block.red/.blue/.green/.yellow 的 --block-color
+// 同一套色票——離場粉粒是獨立於方塊本體的元素（方塊消失動畫播完就從 DOM
+// 移除），沒辦法用 CSS class 繼承顏色，只能在 JS 這邊也留一份對照表，內聯
+// 成 --dot-color 傳給每一顆粒子。
+const COLOR_HEX: Record<Color, string> = {
+  red: "#e6453f",
+  blue: "#3b6fe0",
+  green: "#2fae66",
+  yellow: "#e6b800",
+};
+
+const BURST_DOTS_PER_CELL = 9;
+
+interface CrumbDot {
+  dx: string;
+  dy: string;
+  rot: string;
+  size: string;
+}
+
+interface CrumbCellBurst {
+  row: number;
+  col: number;
+  dots: CrumbDot[];
+}
+
+interface CrumbBurst {
+  id: string;
+  color: string;
+  // 整個方塊（可能多格）的幾何中心，拿來放「炸開的閃光/衝擊波」——跟下面
+  // 逐格噴發的粉粒是不同層次的效果，中心用平均值即可，不需要對齊到整數格。
+  center: { row: number; col: number };
+  cells: CrumbCellBurst[];
+}
+
+// 一格炸開的粉粒角度沿一整圈平均分佈、再加隨機抖動，距離/大小也各自帶一點
+// 隨機——避免看起來像複製貼上的規律圖案，而是碎屑四散的手感。距離/尺寸都
+// 刻意誇張一點（超出格子本身範圍不少），效果才會夠明顯，不會一閃即逝看不清楚。
+function createCrumbCellDots(): CrumbDot[] {
+  return Array.from({ length: BURST_DOTS_PER_CELL }, (_, i) => {
+    const angle = (Math.PI * 2 * i) / BURST_DOTS_PER_CELL + (Math.random() - 0.5) * 0.6;
+    const distance = 26 + Math.random() * 32;
+    return {
+      dx: `${(Math.cos(angle) * distance).toFixed(1)}px`,
+      dy: `${(Math.sin(angle) * distance).toFixed(1)}px`,
+      rot: `${Math.floor(Math.random() * 360) - 180}deg`,
+      size: `${(5 + Math.random() * 5).toFixed(1)}px`,
+    };
+  });
+}
+
+// 每個離場方塊自己的格子都各自炸開一圈粉粒（不是整個方塊共用一個爆點），
+// 多格方塊看起來才會像「整塊碎開」而不是從單一個點噴出來。
+function createCrumbBurst(block: LevelBlock): CrumbBurst {
+  const rows = block.cells.map(([row]) => row);
+  const cols = block.cells.map(([, col]) => col);
+  return {
+    id: block.id,
+    color: COLOR_HEX[block.color],
+    center: {
+      row: rows.reduce((sum, row) => sum + row, 0) / rows.length,
+      col: cols.reduce((sum, col) => sum + col, 0) / cols.length,
+    },
+    cells: block.cells.map(([row, col]) => ({ row, col, dots: createCrumbCellDots() })),
+  };
+}
+
+// 粉粒的爆點是格子正中央，跟 edgeStyle() 共用同一套座標系統（相對於
+// .board 左上角），只是多加了半格去對齊中心而不是格子邊緣。
+function cellCenterStyle(row: number, col: number): CSSProperties {
+  return {
+    left: `calc(${col} * (var(--cell-size) + var(--cell-gap)) + var(--cell-size) / 2)`,
+    top: `calc(${row} * (var(--cell-size) + var(--cell-gap)) + var(--cell-size) / 2)`,
+  };
+}
 
 function cellKey(row: number, col: number) {
   return `${row},${col}`;
@@ -56,12 +137,63 @@ function measureCellPitch(boardEl: HTMLElement, cols: number, rows: number): { c
   };
 }
 
-const DOOR_STYLE_BY_SIDE: Record<Side, Pick<CSSProperties, "alignSelf" | "justifySelf" | "width" | "height">> = {
-  top: { alignSelf: "start", justifySelf: "center", width: "70%", height: "14%" },
-  bottom: { alignSelf: "end", justifySelf: "center", width: "70%", height: "14%" },
-  left: { alignSelf: "center", justifySelf: "start", width: "14%", height: "70%" },
-  right: { alignSelf: "center", justifySelf: "end", width: "14%", height: "70%" },
+// 盤面的每一格都要被「牆」或「門」包住：格子邊界（鄰格不是地板）沒有門的
+// 那一側補一段牆，讓不規則盤面的外圍描出一圈完整輪廓，門則是輪廓上開的口。
+// 座標系統跟 blockWrapper 共用（相對於 .board 左上角，單位是「幾個格子」
+// 乘上 --cell-size + --cell-gap）。
+const SIDES: Side[] = ["top", "right", "bottom", "left"];
+const SIDE_DELTA: Record<Side, CellCoord> = {
+  top: [-1, 0],
+  right: [0, 1],
+  bottom: [1, 0],
+  left: [0, -1],
 };
+
+function doorKey(row: number, col: number, side: Side): string {
+  return `${row},${col},${side}`;
+}
+
+interface WallSegment {
+  row: number;
+  col: number;
+  side: Side;
+}
+
+// 找出所有「地板邊界、但沒有門」的邊——這些邊要補一段牆。
+function boundaryWalls(cells: CellCoord[], floorSet: Set<string>, doors: Door[]): WallSegment[] {
+  const doorSides = new Set(doors.map((d) => doorKey(d.row, d.col, d.side)));
+  const walls: WallSegment[] = [];
+  for (const [r, c] of cells) {
+    for (const side of SIDES) {
+      const [dr, dc] = SIDE_DELTA[side];
+      if (floorSet.has(cellKey(r + dr, c + dc))) continue; // 內部邊，不是外圍
+      if (doorSides.has(doorKey(r, c, side))) continue; // 這裡是門，不補牆
+      walls.push({ row: r, col: c, side });
+    }
+  }
+  return walls;
+}
+
+// 門跟牆是同一圈輪廓上的兩種段落（一種是實牆、一種是開口），幾何算法完全
+// 一樣：緊貼格子邊界、跟所在格子等寬、往外凸出同樣的厚度，只有顏色/樣式
+// class 不同，所以共用同一個定位函式。
+const BOUNDARY_THICKNESS = "calc(var(--cell-size) * 0.22)";
+
+function edgeStyle(row: number, col: number, side: Side): CSSProperties {
+  const cellLeft = `calc(${col} * (var(--cell-size) + var(--cell-gap)))`;
+  const cellTop = `calc(${row} * (var(--cell-size) + var(--cell-gap)))`;
+
+  switch (side) {
+    case "top":
+      return { left: cellLeft, top: `calc(${cellTop} - ${BOUNDARY_THICKNESS})`, width: "var(--cell-size)", height: BOUNDARY_THICKNESS };
+    case "bottom":
+      return { left: cellLeft, top: `calc(${cellTop} + var(--cell-size))`, width: "var(--cell-size)", height: BOUNDARY_THICKNESS };
+    case "left":
+      return { left: `calc(${cellLeft} - ${BOUNDARY_THICKNESS})`, top: cellTop, width: BOUNDARY_THICKNESS, height: "var(--cell-size)" };
+    case "right":
+      return { left: `calc(${cellLeft} + var(--cell-size))`, top: cellTop, width: BOUNDARY_THICKNESS, height: "var(--cell-size)" };
+  }
+}
 
 interface DragState {
   blockId: string;
@@ -134,6 +266,7 @@ function blocksWithOverride(blocks: LevelBlock[], blockId: string, cells: CellCo
 export function Board({ level }: BoardProps) {
   const [blocks, setBlocks] = useState<LevelBlock[]>(level.blocks);
   const [exitingBlocks, setExitingBlocks] = useState<LevelBlock[]>([]);
+  const [bursts, setBursts] = useState<CrumbBurst[]>([]);
   const [dragOffset, setDragOffset] = useState<DragOffset | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const boardRef = useRef<HTMLDivElement | null>(null);
@@ -147,26 +280,37 @@ export function Board({ level }: BoardProps) {
   useEffect(() => clearExitTimers, []);
 
   const floorSet = new Set(level.cells.map(([r, c]) => cellKey(r, c)));
+  const walls = boundaryWalls(level.cells, floorSet, level.doors);
   const [, maxRow] = minMax(level.cells.map(([r]) => r));
   const [, maxCol] = minMax(level.cells.map(([, c]) => c));
   const rows = maxRow + 1;
   const cols = maxCol + 1;
   // 離場動畫還在播放時，方塊在遊戲規則上已經算離場了（blocks 已經不含它），
-  // 但畫面上要等它滑出去、淡出完才顯示「過關」，感覺才像玩家親眼看到最後
-  // 一個方塊離開盤面。
-  const isComplete = isLevelComplete(blocks) && exitingBlocks.length === 0;
+  // 但畫面上要等它滑出去、炸開的粉粒也飛散完才顯示「過關」，感覺才像玩家
+  // 親眼看到最後一個方塊離開盤面，而不是粉塵還在飛就先跳出過關橫幅。
+  const isComplete = isLevelComplete(blocks) && exitingBlocks.length === 0 && bursts.length === 0;
 
   // 方塊滑到同色門對齊的邊界時觸發：把它從 blocks 移除（往後的碰撞判定視同
-  // 它已經不在盤面上），並讓它以目前方向再往外滑一步、短暫顯示後移除，做出
-  // 「滑出盤面消失」的動畫，而不是瞬間憑空不見。
+  // 它已經不在盤面上），讓它以目前方向再往外滑一步、同時在滑到的位置炸開
+  // 一圈粉粒，短暫顯示後移除，做出「滑出盤面、爆成碎屑消失」的動畫，而不是
+  // 瞬間憑空不見。
   function exitBlock(block: LevelBlock, direction: Direction) {
     setBlocks((prev) => prev.filter((b) => b.id !== block.id));
-    setExitingBlocks((prev) => [...prev, { ...block, cells: translateCells(block.cells, direction, 1) }]);
-    const timerId = setTimeout(() => {
+    const exitedCells = translateCells(block.cells, direction, 1);
+    setExitingBlocks((prev) => [...prev, { ...block, cells: exitedCells }]);
+    setBursts((prev) => [...prev, createCrumbBurst({ ...block, cells: exitedCells })]);
+
+    const wrapperTimerId = setTimeout(() => {
       setExitingBlocks((prev) => prev.filter((b) => b.id !== block.id));
-      exitTimersRef.current.delete(timerId);
+      exitTimersRef.current.delete(wrapperTimerId);
     }, EXIT_ANIMATION_MS);
-    exitTimersRef.current.add(timerId);
+    exitTimersRef.current.add(wrapperTimerId);
+
+    const burstTimerId = setTimeout(() => {
+      setBursts((prev) => prev.filter((b) => b.id !== block.id));
+      exitTimersRef.current.delete(burstTimerId);
+    }, BURST_ANIMATION_MS);
+    exitTimersRef.current.add(burstTimerId);
   }
 
   function resetLevel() {
@@ -174,6 +318,7 @@ export function Board({ level }: BoardProps) {
     dragRef.current = null;
     setDragOffset(null);
     setExitingBlocks([]);
+    setBursts([]);
     setBlocks(level.blocks);
   }
 
@@ -201,8 +346,9 @@ export function Board({ level }: BoardProps) {
       const nextCells = translateCells(drag.currentCells, result.direction, result.steps);
       const draggedBlock = blocks.find((block) => block.id === drag.blockId);
       const movedBlock = draggedBlock && { ...draggedBlock, cells: nextCells };
-      if (movedBlock && canExit(level.cells, level.doors, movedBlock, result.direction)) {
-        exitBlock(movedBlock, result.direction);
+      const exitDirection = movedBlock ? findExitDirection(level.cells, level.doors, movedBlock) : null;
+      if (movedBlock && exitDirection) {
+        exitBlock(movedBlock, exitDirection);
         exited = true;
       } else {
         drag.currentCells = nextCells;
@@ -298,7 +444,10 @@ export function Board({ level }: BoardProps) {
     setDragOffset(null);
   }
 
-  function renderBlockWrapper(block: LevelBlock, options: { interactive: boolean; extraClassName?: string }) {
+  function renderBlockWrapper(
+    block: LevelBlock,
+    options: { interactive: boolean; extraClassName?: string; popDelayMs?: number },
+  ) {
     const { anchorRow, anchorCol, shapeRows, shapeCols } = boundingBox(block.cells);
     const isDragging = options.interactive && dragOffset?.blockId === block.id;
     const className = [styles.blockWrapper, isDragging ? styles.dragging : null, options.extraClassName]
@@ -321,6 +470,7 @@ export function Board({ level }: BoardProps) {
           {
             "--anchor-row": anchorRow,
             "--anchor-col": anchorCol,
+            "--pop-delay": `${options.popDelayMs ?? 0}ms`,
             ...(isDragging && dragOffset
               ? { "--drag-offset-x": `${dragOffset.offsetXPx}px`, "--drag-offset-y": `${dragOffset.offsetYPx}px` }
               : {}),
@@ -357,39 +507,87 @@ export function Board({ level }: BoardProps) {
         </p>
       )}
 
-      <div
-        ref={boardRef}
-        className={styles.board}
-        style={{
-          gridTemplateColumns: `repeat(${cols}, var(--cell-size))`,
-          gridTemplateRows: `repeat(${rows}, var(--cell-size))`,
-        }}
-      >
-        {Array.from({ length: rows }, (_, r) =>
-          Array.from({ length: cols }, (_, c) => (
+      <div className={styles.boardFrame}>
+        <div
+          ref={boardRef}
+          className={styles.board}
+          style={{
+            gridTemplateColumns: `repeat(${cols}, var(--cell-size))`,
+            gridTemplateRows: `repeat(${rows}, var(--cell-size))`,
+          }}
+        >
+          {Array.from({ length: rows }, (_, r) =>
+            Array.from({ length: cols }, (_, c) => (
+              <div
+                key={cellKey(r, c)}
+                className={floorSet.has(cellKey(r, c)) ? styles.floor : styles.hole}
+                style={{ gridRow: r + 1, gridColumn: c + 1 }}
+              />
+            )),
+          )}
+
+          {walls.map((wall) => (
             <div
-              key={cellKey(r, c)}
-              className={floorSet.has(cellKey(r, c)) ? styles.floor : styles.hole}
-              style={{ gridRow: r + 1, gridColumn: c + 1 }}
+              key={`wall-${wall.row}-${wall.col}-${wall.side}`}
+              className={styles.wall}
+              style={edgeStyle(wall.row, wall.col, wall.side)}
             />
-          )),
-        )}
+          ))}
 
-        {level.doors.map((door) => (
-          <div
-            key={`door-${door.row}-${door.col}`}
-            data-door-color={door.color}
-            className={`${styles.door} ${styles[door.color]}`}
-            style={{
-              gridRow: door.row + 1,
-              gridColumn: door.col + 1,
-              ...DOOR_STYLE_BY_SIDE[door.side],
-            }}
-          />
-        ))}
+          {level.doors.map((door) => (
+            <div
+              key={`door-${door.row}-${door.col}`}
+              data-door-color={door.color}
+              className={`${styles.door} ${styles[door.color]}`}
+              style={edgeStyle(door.row, door.col, door.side)}
+            />
+          ))}
 
-        {blocks.map((block) => renderBlockWrapper(block, { interactive: true }))}
-        {exitingBlocks.map((block) => renderBlockWrapper(block, { interactive: false, extraClassName: styles.exiting }))}
+          {blocks.map((block, index) =>
+            renderBlockWrapper(block, { interactive: true, popDelayMs: index * 60 }),
+          )}
+          {exitingBlocks.map((block) =>
+            renderBlockWrapper(block, { interactive: false, extraClassName: styles.exiting }),
+          )}
+
+          {bursts.map((burst) => (
+            <Fragment key={`burst-${burst.id}`}>
+              {/* 整塊方塊共用一次閃光＋衝擊波，強化「爆炸」的第一擊；下面每格
+                  各自噴發的粉粒才是持續飛散的碎屑，兩層疊在一起才夠誇張。 */}
+              <div
+                className={styles.crumbBurst}
+                style={{ ...cellCenterStyle(burst.center.row, burst.center.col), "--dot-color": burst.color } as CSSProperties}
+              >
+                <span className={styles.crumbFlash} />
+                <span className={styles.crumbRing} />
+              </div>
+
+              {burst.cells.map((cell) => (
+                <div
+                  key={`${burst.id}-${cell.row}-${cell.col}`}
+                  className={styles.crumbBurst}
+                  style={cellCenterStyle(cell.row, cell.col)}
+                >
+                  {cell.dots.map((dot, dotIndex) => (
+                    <span
+                      key={dotIndex}
+                      className={styles.crumb}
+                      style={
+                        {
+                          "--dx": dot.dx,
+                          "--dy": dot.dy,
+                          "--rot": dot.rot,
+                          "--size": dot.size,
+                          "--dot-color": burst.color,
+                        } as CSSProperties
+                      }
+                    />
+                  ))}
+                </div>
+              ))}
+            </Fragment>
+          ))}
+        </div>
       </div>
     </div>
   );

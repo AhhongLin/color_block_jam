@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canExit, isLevelComplete } from "./exit";
+import { canExit, findExitDirection, isLevelComplete } from "./exit";
 import type { CellCoord, Door } from "../types/level";
 
 // 3x3 開放盤面，方便手算邊界位置。
@@ -95,6 +95,31 @@ describe("canExit", () => {
     expect(canExit(OPEN_3X3, doors, { color: "blue" as const, cells: [[1, 0]] }, "left")).toBe(true);
     expect(canExit(OPEN_3X3, doors, { color: "blue" as const, cells: [[0, 1]] }, "up")).toBe(true);
     expect(canExit(OPEN_3X3, doors, { color: "blue" as const, cells: [[2, 1]] }, "down")).toBe(true);
+  });
+});
+
+describe("findExitDirection", () => {
+  it("方塊貼齊的同色門邊，跟剛剛的移動方向不同也能離場", () => {
+    // 門在右側，但方塊是被「往下滑」帶到這個位置的——判定不該管移動方向，
+    // 只看方塊目前的位置有沒有貼齊同色門。
+    const doors: Door[] = [{ row: 1, col: 2, side: "right", color: "red" }];
+    const block = { color: "red" as const, cells: [[1, 2]] as CellCoord[] };
+    expect(findExitDirection(OPEN_3X3, doors, block)).toBe("right");
+  });
+
+  it("方塊沒有貼齊任何同色門時回傳 null", () => {
+    const doors: Door[] = [{ row: 1, col: 2, side: "right", color: "red" }];
+    const block = { color: "red" as const, cells: [[1, 1]] as CellCoord[] };
+    expect(findExitDirection(OPEN_3X3, doors, block)).toBeNull();
+  });
+
+  it("方塊同時貼齊多個方向的同色門時，回傳其中一個可離場的方向", () => {
+    const doors: Door[] = [
+      { row: 0, col: 0, side: "top", color: "blue" },
+      { row: 0, col: 0, side: "left", color: "blue" },
+    ];
+    const block = { color: "blue" as const, cells: [[0, 0]] as CellCoord[] };
+    expect(["up", "left"]).toContain(findExitDirection(OPEN_3X3, doors, block));
   });
 });
 

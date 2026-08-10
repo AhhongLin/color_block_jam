@@ -5,3 +5,15 @@
 body {
   margin: 0;
 }
+
+/* 動作敏感的使用者：把所有動畫/轉場都壓到近乎瞬間，包含方塊滑動這種功能性
+   動畫——對這群使用者來說，位移不帶緩動地「瞬間到位」通常才是比較舒服的。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
