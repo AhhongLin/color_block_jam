@@ -369,11 +369,12 @@
    edgeStyle()），讀起來像圍住格子的實體邊框。跟 .block 一樣用「頂部亮邊
    inset + 底部暗邊 inset + 外部落影」三層堆出厚度感，色階改成黑色系，
    維持「牆是無機的邊框」、「方塊是有機的糖果」這組對比。 */
+/* border-radius 由 Board.tsx 的 edgeStyle()/edgeRadius() 依相鄰段落動態算出
+   （inline style），讓連續的牆段落接成一整體、只在頭尾露出圓角。 */
 .wall {
   position: absolute;
   top: 0;
   left: 0;
-  border-radius: 4px;
   background: linear-gradient(180deg, #3a3a3a, #1c1c1c 55%, #000000);
   box-shadow:
     inset 0 2px 0 rgba(255, 255, 255, 0.25),
@@ -385,11 +386,12 @@
    一樣是方正的箱型（只是圓角略大一點做出「箱子」感，不是膠囊）。材質跟
    .block 同款（inset 高光/暗邊 + ::before 放射狀玻璃反光），色彩取
    currentColor（由 .door.red 等 class 設定），維持跟方塊同色系可辨識。 */
+/* border-radius 同樣由 Board.tsx 動態算出——同色相鄰的門段落接成一整體，
+   不同顏色的門即使緊貼也各自保留頭尾圓角。 */
 .door {
   position: absolute;
   top: 0;
   left: 0;
-  border-radius: 6px;
   background: currentColor;
   box-shadow:
     inset 0 2px 0 rgba(255, 255, 255, 0.6),

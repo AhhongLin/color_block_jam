@@ -188,19 +188,45 @@ function boundaryWalls(cells: CellCoord[], floorSet: Set<string>, doors: Door[])
 // class 不同，所以共用同一個定位函式。
 const BOUNDARY_THICKNESS = "calc(var(--cell-size) * 0.22)";
 
-function edgeStyle(row: number, col: number, side: Side): CSSProperties {
+// 牆一律連成一體；門則是同色才連成一體——兩者的圓角都只留在「這一串真正
+// 的頭尾」，串中間彼此相鄰的兩端接成直角，長度也順勢補上 --cell-gap 蓋住
+// 縫隙，讀起來才會像一整段牆/一整個門，不是一格格獨立的膠囊貼在一起。
+const WALL_RADIUS = "4px";
+const DOOR_RADIUS = "6px";
+
+// 牆/門的「相鄰段」定義：top/bottom 沿著同一 row 往左右找（col-1/col+1），
+// left/right 沿著同一 col 往上下找（row-1/row+1）——跟格子本身怎麼排列
+// 無關，只看沿著這個邊所在的方向。
+function edgeNeighborKey(row: number, col: number, side: Side, direction: "prev" | "next"): string {
+  const step = direction === "prev" ? -1 : 1;
+  return side === "top" || side === "bottom" ? doorKey(row, col + step, side) : doorKey(row + step, col, side);
+}
+
+// 依連接狀態算出四角圓角：橫向段（top/bottom）用左右兩側判斷，縱向段
+// （left/right）用頭尾兩側判斷；接到同類段落的那一側收成直角（0），沒接到
+// 的維持原本圓角，做出「一串只有頭尾是圓的」效果。
+function edgeRadius(side: Side, radius: string, connectedPrev: boolean, connectedNext: boolean): string {
+  const start = connectedPrev ? "0" : radius;
+  const end = connectedNext ? "0" : radius;
+  return side === "top" || side === "bottom" ? `${start} ${end} ${end} ${start}` : `${start} ${start} ${end} ${end}`;
+}
+
+function edgeStyle(row: number, col: number, side: Side, connectedNext: boolean, borderRadius: string): CSSProperties {
   const cellLeft = `calc(${col} * (var(--cell-size) + var(--cell-gap)))`;
   const cellTop = `calc(${row} * (var(--cell-size) + var(--cell-gap)))`;
+  // 只往「下一段」的方向補長度：上一段接到這裡時，會是它自己補長度蓋住
+  // 縫隙，兩邊都補會重複多算一份 --cell-gap。
+  const runLength = connectedNext ? "calc(var(--cell-size) + var(--cell-gap))" : "var(--cell-size)";
 
   switch (side) {
     case "top":
-      return { left: cellLeft, top: `calc(${cellTop} - ${BOUNDARY_THICKNESS})`, width: "var(--cell-size)", height: BOUNDARY_THICKNESS };
+      return { left: cellLeft, top: `calc(${cellTop} - ${BOUNDARY_THICKNESS})`, width: runLength, height: BOUNDARY_THICKNESS, borderRadius };
     case "bottom":
-      return { left: cellLeft, top: `calc(${cellTop} + var(--cell-size))`, width: "var(--cell-size)", height: BOUNDARY_THICKNESS };
+      return { left: cellLeft, top: `calc(${cellTop} + var(--cell-size))`, width: runLength, height: BOUNDARY_THICKNESS, borderRadius };
     case "left":
-      return { left: `calc(${cellLeft} - ${BOUNDARY_THICKNESS})`, top: cellTop, width: BOUNDARY_THICKNESS, height: "var(--cell-size)" };
+      return { left: `calc(${cellLeft} - ${BOUNDARY_THICKNESS})`, top: cellTop, width: BOUNDARY_THICKNESS, height: runLength, borderRadius };
     case "right":
-      return { left: `calc(${cellLeft} + var(--cell-size))`, top: cellTop, width: BOUNDARY_THICKNESS, height: "var(--cell-size)" };
+      return { left: `calc(${cellLeft} + var(--cell-size))`, top: cellTop, width: BOUNDARY_THICKNESS, height: runLength, borderRadius };
   }
 }
 
@@ -290,6 +316,23 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
 
   const floorSet = new Set(level.cells.map(([r, c]) => cellKey(r, c)));
   const walls = boundaryWalls(level.cells, floorSet, level.doors);
+  const wallKeySet = new Set(walls.map((wall) => doorKey(wall.row, wall.col, wall.side)));
+  const doorColorByKey = new Map(level.doors.map((door) => [doorKey(door.row, door.col, door.side), door.color]));
+
+  function wallStyle(wall: WallSegment): CSSProperties {
+    const connectedPrev = wallKeySet.has(edgeNeighborKey(wall.row, wall.col, wall.side, "prev"));
+    const connectedNext = wallKeySet.has(edgeNeighborKey(wall.row, wall.col, wall.side, "next"));
+    return edgeStyle(wall.row, wall.col, wall.side, connectedNext, edgeRadius(wall.side, WALL_RADIUS, connectedPrev, connectedNext));
+  }
+
+  // 門只跟「同色」的鄰接門段連成一體——不同顏色的門即使緊貼在一起，也要維持
+  // 各自獨立的圓角，讀起來才分得出是兩個不同顏色的門，不是同一個門。
+  function doorStyle(door: Door): CSSProperties {
+    const connectedPrev = doorColorByKey.get(edgeNeighborKey(door.row, door.col, door.side, "prev")) === door.color;
+    const connectedNext = doorColorByKey.get(edgeNeighborKey(door.row, door.col, door.side, "next")) === door.color;
+    return edgeStyle(door.row, door.col, door.side, connectedNext, edgeRadius(door.side, DOOR_RADIUS, connectedPrev, connectedNext));
+  }
+
   const [, maxRow] = minMax(level.cells.map(([r]) => r));
   const [, maxCol] = minMax(level.cells.map(([, c]) => c));
   const rows = maxRow + 1;
@@ -555,11 +598,7 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
           )}
 
           {walls.map((wall) => (
-            <div
-              key={`wall-${wall.row}-${wall.col}-${wall.side}`}
-              className={styles.wall}
-              style={edgeStyle(wall.row, wall.col, wall.side)}
-            />
+            <div key={`wall-${wall.row}-${wall.col}-${wall.side}`} className={styles.wall} style={wallStyle(wall)} />
           ))}
 
           {level.doors.map((door) => (
@@ -567,7 +606,7 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
               key={`door-${door.row}-${door.col}`}
               data-door-color={door.color}
               className={`${styles.door} ${styles[door.color]}`}
-              style={edgeStyle(door.row, door.col, door.side)}
+              style={doorStyle(door)}
             />
           ))}
 
