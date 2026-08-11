@@ -86,17 +86,30 @@ describe("canExit", () => {
     expect(canExit(lShapedBoard, partialDoors, block, "right")).toBe(false);
   });
 
-  it("凹形方塊（形狀本身較短的那一格）前面是空地板時，不強求該格也對齊門", () => {
+  it("凹形方塊（形狀本身較短的那一格）只在長臂那格開門時不可離場——短臂也要在它自己投影對齊的邊界上有門", () => {
     // L 形方塊：(1,0)(1,1) 這一排，加上 (2,1) 多凸出去一格——(1,0) 這一列
     // 因為形狀本身較短，往下永遠會停在 (2,0) 這格空地板前面，不代表方塊還
-    // 沒滑到底；只要 (2,0) 沒被別的方塊佔住，也不影響離場判定。
+    // 沒滑到底，但依然要把它投影到 (2,0)（它自己這條線的邊界）比對同色門；
+    // 這裡只在長臂 (2,1) 開了門，短臂那條線沒有門，整個方塊仍不可離場。
     const doors: Door[] = [{ row: 2, col: 1, side: "bottom", color: "red" }];
+    const block = { color: "red" as const, cells: [[1, 0], [1, 1], [2, 1]] as CellCoord[] };
+    expect(canExit(OPEN_3X3, doors, block, "down")).toBe(false);
+  });
+
+  it("凹形方塊的短臂投影到的邊界也開了同色門時，整個方塊可以離場", () => {
+    const doors: Door[] = [
+      { row: 2, col: 1, side: "bottom", color: "red" },
+      { row: 2, col: 0, side: "bottom", color: "red" },
+    ];
     const block = { color: "red" as const, cells: [[1, 0], [1, 1], [2, 1]] as CellCoord[] };
     expect(canExit(OPEN_3X3, doors, block, "down")).toBe(true);
   });
 
-  it("凹形方塊該格空地板被其他方塊佔住時，視同撞到東西，不可離場", () => {
-    const doors: Door[] = [{ row: 2, col: 1, side: "bottom", color: "red" }];
+  it("凹形方塊短臂投影路徑上被其他方塊佔住時，視同撞到東西，不可離場", () => {
+    const doors: Door[] = [
+      { row: 2, col: 1, side: "bottom", color: "red" },
+      { row: 2, col: 0, side: "bottom", color: "red" },
+    ];
     const block = { color: "red" as const, cells: [[1, 0], [1, 1], [2, 1]] as CellCoord[] };
     const otherBlocksCells: CellCoord[] = [[2, 0]];
     expect(canExit(OPEN_3X3, doors, block, "down", otherBlocksCells)).toBe(false);
@@ -138,8 +151,11 @@ describe("findExitDirection", () => {
     expect(["up", "left"]).toContain(findExitDirection(OPEN_3X3, doors, block));
   });
 
-  it("otherBlocksCells 會傳遞給 canExit，擋住凹形方塊該離場方向的空地板前緣格", () => {
-    const doors: Door[] = [{ row: 2, col: 1, side: "bottom", color: "red" }];
+  it("otherBlocksCells 會傳遞給 canExit，擋住凹形方塊短臂投影路徑上的格子", () => {
+    const doors: Door[] = [
+      { row: 2, col: 1, side: "bottom", color: "red" },
+      { row: 2, col: 0, side: "bottom", color: "red" },
+    ];
     const block = { color: "red" as const, cells: [[1, 0], [1, 1], [2, 1]] as CellCoord[] };
     expect(findExitDirection(OPEN_3X3, doors, block)).toBe("down");
     expect(findExitDirection(OPEN_3X3, doors, block, [[2, 0]])).toBeNull();

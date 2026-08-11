@@ -95,6 +95,7 @@ export const levelThree: Level = {
     { row: 3, col: 5, side: "right", color: "green" },
     { row: 5, col: 0, side: "bottom", color: "blue" },
     { row: 5, col: 1, side: "bottom", color: "blue" },
+    { row: 5, col: 3, side: "bottom", color: "yellow" },
     { row: 5, col: 4, side: "bottom", color: "yellow" },
     { row: 5, col: 5, side: "bottom", color: "yellow" },
   ],
@@ -253,10 +254,11 @@ export const levelSeven: Level = {
 // 第 8 關：7x7 盤面、右上角挖掉 2x2、正中偏右再挖一個單格坑洞（(5,5)），
 // 盤面複雜度最高。紅色是本作第一個需要「兩段式」操作的方塊：先右滑一格
 // （被藍色暫時擋住，純粹調整對齊位置，不出場)，再下滑到底——下滑時形狀
-// 缺角的那一短臂（原本在上排）永遠碰不到底部邊界，只有長臂那一格真正貼
-// 齊同色門，方塊仍整個出場。另有一組相依關係：黃色（暫時佔住藍色的目的
-// 地）要先上滑出場（利用缺角邊界），藍色才能右滑兩格出場。綠色、紫色、
-// 橘色不受影響，可隨時出場。
+// 缺角的那一短臂（原本在上排）雖然本身碰不到底部邊界，仍要把它沿下滑方向
+// 投影到它自己對齊的那條邊界線（col3, row6）上比對同色門，所以底部除了長臂
+// 對齊的 (6,2) 有紅色門，短臂投影對齊的 (6,3) 也要有紅色門，方塊才整個出場。
+// 另有一組相依關係：黃色（暫時佔住藍色的目的地）要先上滑出場（利用缺角
+// 邊界），藍色才能右滑兩格出場。綠色、紫色、橘色不受影響，可隨時出場。
 export const levelEight: Level = {
   id: "08",
   name: "第 8 關",
@@ -271,6 +273,7 @@ export const levelEight: Level = {
   ],
   doors: [
     { row: 6, col: 2, side: "bottom", color: "red" },
+    { row: 6, col: 3, side: "bottom", color: "red" },
     { row: 2, col: 6, side: "right", color: "blue" },
     { row: 3, col: 6, side: "right", color: "blue" },
     { row: 6, col: 0, side: "bottom", color: "green" },
