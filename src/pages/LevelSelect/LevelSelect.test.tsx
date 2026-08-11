@@ -67,6 +67,7 @@ describe("LevelSelect", () => {
 
     const first = screen.getByLabelText("第 1 關（已完成）");
     expect(first.tagName).toBe("A");
+    expect(first.textContent).toContain("1");
     expect(first.textContent).toContain("✓");
 
     const second = screen.getByLabelText("第 2 關");

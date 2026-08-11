@@ -76,7 +76,8 @@ export function LevelSelect() {
               data-level-id={level.id}
               onClick={() => playSound("click")}
             >
-              {completed ? <span className={styles.completeIcon}>✓</span> : <span className={styles.nodeIndex}>{index + 1}</span>}
+              <span className={styles.nodeIndex}>{index + 1}</span>
+              {completed && <span className={styles.completeBadge}>✓</span>}
             </Link>
           );
         })}
