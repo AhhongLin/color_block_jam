@@ -28,16 +28,37 @@ beforeEach(() => {
 });
 
 describe("Board", () => {
+  // 方塊是單一剪影（clip-path 沿格子邊界描出的多邊形，見 blockShape.ts），
+  // 沒量到盤面格距（cellPitchPx）之前不會畫出來——量測靠 getBoundingClientRect()，
+  // jsdom 預設回傳全 0，所以要 mock 一個非零的盤面尺寸，方塊才會實際渲染。
+  beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      width: 600,
+      height: 600,
+      top: 0,
+      left: 0,
+      right: 600,
+      bottom: 600,
+      x: 0,
+      y: 0,
+      toJSON() {},
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("renders the level name", () => {
     render(<Board level={sampleLevel} />);
     expect(screen.getByText(sampleLevel.name)).toBeInTheDocument();
   });
 
-  it("renders one element per block cell, tagged with the block id", () => {
+  it("renders one element per block, tagged with the block id", () => {
     const { container } = render(<Board level={sampleLevel} />);
     for (const block of sampleLevel.blocks) {
       const cells = container.querySelectorAll(`[data-block-id="${block.id}"]`);
-      expect(cells).toHaveLength(block.cells.length);
+      expect(cells).toHaveLength(1);
     }
   });
 

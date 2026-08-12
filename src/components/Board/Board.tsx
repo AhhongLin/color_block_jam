@@ -1,9 +1,19 @@
-import { Fragment, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import {
+  Fragment,
+  useLayoutEffect,
+  useRef,
+  useEffect,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import type { CellCoord, Color, Door, Level, LevelBlock, Side } from "../../types/level";
 import { maxSlideSteps, translateCells, type Direction } from "../../game/slide";
 import { clampedStepsFromDistance, updateAxisTracker, type Axis, type AxisTracker } from "../../game/dragDirection";
 import { findExitDirection, isLevelComplete } from "../../game/exit";
 import { playSound } from "../../audio/sound";
+import { buildBlockClipPath } from "./blockShape";
 import styles from "./Board.module.css";
 
 interface BoardProps {
@@ -19,17 +29,17 @@ const DRAG_THRESHOLD_PX = 12;
 
 // 方塊離場時，讓它視覺上再往外滑一步、同時炸開成粉粒消失的動畫時長。
 // EXIT_ANIMATION_MS 要跟 Board.module.css 的 `.blockWrapper` transition
-// 時長、`.blockWrapper.exiting .block` 的 blockPopOut 動畫時長一致；
-// BURST_ANIMATION_MS 要跟 `.crumb` 的 crumbFly 動畫時長一致——粉粒要比
-// 方塊本體晚一點消失，才有「爆開的粉塵還飄在空中」的尾韻，不是兩者同時
-// 瞬間消失。
+// 時長、`.blockWrapper.exiting .blockShapeGroup` 的 blockPopOut 動畫時長
+// 一致；BURST_ANIMATION_MS 要跟 `.crumb` 的 crumbFly 動畫時長一致——粉粒
+// 要比方塊本體晚一點消失，才有「爆開的粉塵還飄在空中」的尾韻，不是兩者
+// 同時瞬間消失。
 const EXIT_ANIMATION_MS = 460;
 const BURST_ANIMATION_MS = 1050;
 
-// 跟 Board.module.css 的 .block.red/.blue/.green/.yellow 的 --block-color
-// 同一套色票——離場粉粒是獨立於方塊本體的元素（方塊消失動畫播完就從 DOM
-// 移除），沒辦法用 CSS class 繼承顏色，只能在 JS 這邊也留一份對照表，內聯
-// 成 --dot-color 傳給每一顆粒子。
+// 跟 Board.module.css 的 --block-color（透過 Board.tsx 內聯設在
+// .blockShapeGroup 上）同一套色票——離場粉粒是獨立於方塊本體的元素（方塊
+// 消失動畫播完就從 DOM 移除），沒辦法用 CSS 繼承拿到顏色，只能在 JS 這邊
+// 也留一份對照表，內聯成 --dot-color 傳給每一顆粒子。
 const COLOR_HEX: Record<Color, string> = {
   red: "#e6453f",
   blue: "#3b6fe0",
@@ -109,6 +119,14 @@ function cellCenterStyle(row: number, col: number): CSSProperties {
 function cellKey(row: number, col: number) {
   return `${row},${col}`;
 }
+
+// 方塊的立體卡通材質疊三層畫（陰影／底座／填色，見 Board.module.css 的
+// .blockShadow/.blockBase/.blockFill）：底座是跟填色層同形狀、往外推
+// BLOCK_OUTSET_PX 的大一號輪廓（蓋住兩層間可能露出的縫），填色層本身再往上
+// 位移做出厚度感（位移量寫在 CSS 裡）。BLOCK_CORNER_RADIUS_RATIO 是圓角
+// 半徑相對格距的比例。
+const BLOCK_OUTSET_PX = 2;
+const BLOCK_CORNER_RADIUS_RATIO = 0.28;
 
 function minMax(values: number[]): [min: number, max: number] {
   return [Math.min(...values), Math.max(...values)];
@@ -303,6 +321,12 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
   const [exitingBlocks, setExitingBlocks] = useState<LevelBlock[]>([]);
   const [bursts, setBursts] = useState<CrumbBurst[]>([]);
   const [dragOffset, setDragOffset] = useState<DragOffset | null>(null);
+  // 方塊是單一剪影（clip-path 沿格子邊界描出的多邊形，見 blockShape.ts），
+  // clip-path 的 SVG path 只能吃字面數字，不能塞 var(--cell-size) 這種 calc
+  // 表達式，所以要另外量出目前實際渲染的格距 px 值——量法跟既有的
+  // measureCellPitch() 共用，只是這裡要在畫面尺寸改變時（RWD）持續重量，
+  // 不是只在按下拖曳那一刻量一次。
+  const [cellPitchPx, setCellPitchPx] = useState(0);
   const dragRef = useRef<DragState | null>(null);
   const boardRef = useRef<HTMLDivElement | null>(null);
   const exitTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
@@ -337,6 +361,25 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
   const [, maxCol] = minMax(level.cells.map(([, c]) => c));
   const rows = maxRow + 1;
   const cols = maxCol + 1;
+
+  // 用 useLayoutEffect（不是 useEffect）同步量測，讓瀏覽器正式畫出畫面前
+  // cellPitchPx 就已經有值——避免掛載那一瞬間方塊因為量不到格距而不畫、
+  // 下一個 tick 才「彈」出來的閃爍。RWD 改變 --cell-size 時（min(15vw,64px)）
+  // 要重新量，不然視窗縮放後方塊形狀會跟盤面格線對不齊。
+  useLayoutEffect(() => {
+    const boardEl = boardRef.current;
+    if (!boardEl) return;
+    function measure() {
+      if (!boardEl) return;
+      const { colPitch, rowPitch } = measureCellPitch(boardEl, cols, rows);
+      setCellPitchPx((colPitch + rowPitch) / 2);
+    }
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(boardEl);
+    return () => observer.disconnect();
+  }, [cols, rows]);
+
   // 離場動畫還在播放時，方塊在遊戲規則上已經算離場了（blocks 已經不含它），
   // 但畫面上要等它滑出去、炸開的粉粒也飛散完才顯示「過關」，感覺才像玩家
   // 親眼看到最後一個方塊離開盤面，而不是粉塵還在飛就先跳出過關橫幅。
@@ -531,33 +574,54 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
           onPointerCancel: handlePointerCancel,
         }
       : {};
+    const baseStyle: CSSProperties = {
+      "--anchor-row": anchorRow,
+      "--anchor-col": anchorCol,
+      "--pop-delay": `${options.popDelayMs ?? 0}ms`,
+      ...(isDragging && dragOffset
+        ? { "--drag-offset-x": `${dragOffset.offsetXPx}px`, "--drag-offset-y": `${dragOffset.offsetYPx}px` }
+        : {}),
+    } as CSSProperties;
+
+    // 整個方塊只用一組疊層畫（陰影／底座／填色，見 Board.module.css 的
+    // .blockShadow/.blockBase/.blockFill），全部共用同一份幾何（沿格子邊界
+    // 描出的一整圈輪廓，見 blockShape.ts）。底座層不是疊 filter 位移色塊
+    // 做出來的——那個做法在 Chrome 實測會被 clip-path 整個吃掉（clip-path
+    // 套用在 filter 算完的結果上，超出原輪廓的部分直接不見）——而是老實
+    // 算一份「整圈往外推 BLOCK_OUTSET_PX」的大一號多邊形，蓋在填色層底下。
+    // wrapper 尺寸改用量出來的 px 格距直接算，不再依賴 CSS grid 的欄寬。
+    const localCells: CellCoord[] = block.cells.map(([r, c]) => [r - anchorRow, c - anchorCol]);
+    const cornerRadiusPx = cellPitchPx * BLOCK_CORNER_RADIUS_RATIO;
+    const clipPath = cellPitchPx > 0 ? buildBlockClipPath(localCells, cellPitchPx, cornerRadiusPx) : undefined;
+    const clipPathOutset =
+      cellPitchPx > 0 ? buildBlockClipPath(localCells, cellPitchPx, cornerRadiusPx, BLOCK_OUTSET_PX) : undefined;
     return (
       <div
         key={block.id}
         data-block-wrapper-id={block.id}
         className={className}
-        style={
-          {
-            "--anchor-row": anchorRow,
-            "--anchor-col": anchorCol,
-            "--pop-delay": `${options.popDelayMs ?? 0}ms`,
-            ...(isDragging && dragOffset
-              ? { "--drag-offset-x": `${dragOffset.offsetXPx}px`, "--drag-offset-y": `${dragOffset.offsetYPx}px` }
-              : {}),
-            gridTemplateColumns: `repeat(${shapeCols}, var(--cell-size))`,
-            gridTemplateRows: `repeat(${shapeRows}, var(--cell-size))`,
-          } as CSSProperties
-        }
+        style={{ ...baseStyle, width: `${shapeCols * cellPitchPx}px`, height: `${shapeRows * cellPitchPx}px` }}
         {...pointerHandlers}
       >
-        {block.cells.map(([r, c]) => (
-          <div
-            key={`${block.id}-${cellKey(r, c)}`}
-            data-block-id={block.id}
-            className={`${styles.block} ${styles[block.color]}`}
-            style={{ gridRow: r - anchorRow + 1, gridColumn: c - anchorCol + 1 }}
-          />
-        ))}
+        {clipPath && clipPathOutset && (
+          // --block-color 在這一層設一次，三個子層都是它的子元素，靠 CSS
+          // 繼承拿到同一個顏色值，不用每個顏色各寫一條 CSS class。
+          <div className={styles.blockShapeGroup} style={{ "--block-color": COLOR_HEX[block.color] } as CSSProperties}>
+            <div
+              className={`${styles.blockShapeLayer} ${styles.blockShadow}`}
+              style={{ "--block-clip": clipPathOutset } as CSSProperties}
+            />
+            <div
+              className={`${styles.blockShapeLayer} ${styles.blockBase}`}
+              style={{ "--block-clip": clipPathOutset } as CSSProperties}
+            />
+            <div
+              data-block-id={block.id}
+              className={`${styles.blockShapeLayer} ${styles.blockFill}`}
+              style={{ "--block-clip": clipPath } as CSSProperties}
+            />
+          </div>
+        )}
       </div>
     );
   }

@@ -201,27 +201,27 @@
   visibility: hidden;
 }
 
-/* 一個方塊 = 一個 wrapper，內部子格用固定的相對格位排版，
-   wrapper 本身用 transform 位移到目前的錨點格（左上角）；--drag-offset-x/y
-   是拖曳中即時跟手用的額外像素位移（放開後歸零，交回 --anchor-row/col 決定
-   位置)。如此無論是放開後定位、還是拖曳中跟手，transform 都能平滑 animate。
+/* 一個方塊 = 一個 wrapper，裡面只有一個 .blockShapeGroup 子元素（clip-path
+   沿格子邊界描出的形狀，見 Board.tsx 的 blockShape.ts），wrapper 本身用
+   transform 位移到目前的錨點格（左上角）；--drag-offset-x/y 是拖曳中即時
+   跟手用的額外像素位移（放開後歸零，交回 --anchor-row/col 決定位置)。如此
+   無論是放開後定位、還是拖曳中跟手，transform 都能平滑 animate。
 
-   wrapper 的尺寸是整個形狀的「bounding box」（boundingBox() 算出的矩形範圍），
-   不是形狀本身——L 形這類凹形方塊，bounding box 裡一定有格子沒有實際的
-   .block 子元素。若 wrapper 本身可以接收 pointer 事件，那些「空」格會蓋在
-   別的方塊上面搶走它的拖曳判定（例如 L 形方塊凹進去的那格如果剛好疊到隔壁
-   方塊，點隔壁方塊會誤判成拖到這個 L 形方塊）。所以 wrapper 本身關閉
-   pointer-events，只由下面 .block 各自的子格重新打開——事件仍會從 .block
-   往上冒泡到 wrapper 的 React handler，pointer-events: none 只影響「這個
-   元素能不能被命中」，不影響事件從命中到的子元素往上冒泡。 */
+   wrapper 的尺寸是整個形狀的「bounding box」（boundingBox() 算出的矩形
+   範圍），不是形狀本身——L 形這類凹形方塊，bounding box 裡會有區域落在
+   clip-path 剪出來的形狀之外。若 wrapper 本身可以接收 pointer 事件，那些
+   「空」的 bounding box 邊角會蓋在別的方塊上面搶走它的拖曳判定（例如 L 形
+   方塊凹進去的那個角如果剛好疊到隔壁方塊，點隔壁方塊會誤判成拖到這個 L
+   形方塊）。所以 wrapper 本身關閉 pointer-events，只由裡面的填色層（真正
+   的形狀範圍）重新打開——事件仍會從填色層往上冒泡到 wrapper 的 React
+   handler，pointer-events: none 只影響「這個元素能不能被命中」，不影響
+   事件從命中到的子元素往上冒泡。 */
 .blockWrapper {
   --drag-offset-x: 0px;
   --drag-offset-y: 0px;
   position: absolute;
   top: 0;
   left: 0;
-  display: grid;
-  gap: var(--cell-gap);
   transform: translate(
     calc(var(--anchor-col) * (var(--cell-size) + var(--cell-gap)) + var(--drag-offset-x)),
     calc(var(--anchor-row) * (var(--cell-size) + var(--cell-gap)) + var(--drag-offset-y))
@@ -252,23 +252,20 @@
 
 /* 離場動畫：方塊已經被 exitBlock() 平移到盤面外一格，這裡負責滑到那個
    位置（transform transition）、停用互動游標；方塊本體怎麼消失交給下面
-   .blockWrapper.exiting .block 的 blockPopOut 動畫（炸開感），不是單純
-   淡出。實際從畫面上移除交給 Board.tsx 的 setTimeout。 */
+   .blockWrapper.exiting .blockShapeGroup 的 blockPopOut 動畫（炸開感），
+   不是單純淡出。實際從畫面上移除交給 Board.tsx 的 setTimeout。 */
 .blockWrapper.exiting {
   pointer-events: none;
   cursor: default;
   transition: transform 160ms ease-in;
 }
 
-/* 每一格各自「誇張膨脹→旋轉炸裂」消失，搭配 Board.tsx 同時噴出的 .crumb
-   粉粒跟 .crumbFlash/.crumbRing 衝擊波，做出卡通爆開的效果，不是原本單純
-   的淡出。用 animation（而非 transition）是因為要多段式的縮放/旋轉曲線，
-   CSS transition 只能處理單段緩動。膨脹幅度（1.5 倍）跟旋轉角度都刻意放
-   大，時間拉到 320ms，效果才夠明顯、看得清楚，不會一閃即逝。 */
-.blockWrapper.exiting .block {
-  animation: blockPopOut 460ms cubic-bezier(0.4, 0, 1, 1) forwards;
-}
-
+/* 整個形狀（陰影／底座／填色三層一起，見下面 .blockShapeGroup）「誇張
+   膨脹→旋轉炸裂」消失，搭配 Board.tsx 同時噴出的 .crumb 粉粒跟
+   .crumbFlash/.crumbRing 衝擊波，做出卡通爆開的效果，不是原本單純的淡出。
+   用 animation（而非 transition）是因為要多段式的縮放/旋轉曲線，CSS
+   transition 只能處理單段緩動。膨脹幅度（1.5 倍）跟旋轉角度都刻意放大，
+   時間拉到 320ms，效果才夠明顯、看得清楚，不會一閃即逝。 */
 @keyframes blockPopOut {
   0% {
     transform: scale(1) rotate(0deg);
@@ -282,37 +279,6 @@
     transform: scale(0) rotate(26deg);
     opacity: 0;
   }
-}
-
-/* 方塊材質：原型「Variant A 糖果光澤」的多層 inset 陰影疊出立體邊緣，
-   ::before 再蓋一層放射狀高光模擬玻璃反光。--block-color 由各色 class
-   設定，box-shadow / ::before 都靠 color-mix() 從這一個顏色值算出來，
-   換色只要改 --block-color，不用重寫整組陰影。
-   原型的方塊排列間距是 12px，這兩層非 inset 的陰影（下緣實色 lip +
-   環境陰影）原本的伸出量是為那個間距設計的；盤面格子間距只有
-   --cell-gap（2px），照抄原型數值會讓陰影蓋到下一格甚至下一個方塊，
-   看起來像方塊變「長」了，所以這兩層要縮小到 2px 間距內收得住的量。 */
-.block {
-  --block-color: #cccccc;
-  position: relative;
-  pointer-events: auto;
-  background: var(--block-color);
-  border-radius: 10%;
-  box-shadow:
-    inset 0 3px 0 rgba(255, 255, 255, 0.55),
-    inset 0 -7px 10px color-mix(in srgb, var(--block-color) 40%, black 60%),
-    0 1.5px 0 color-mix(in srgb, var(--block-color) 62%, black 38%),
-    0 2px 3px -1px rgba(0, 0, 0, 0.45);
-  overflow: hidden;
-  animation: blockPopIn 360ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
-  animation-delay: var(--pop-delay, 0ms);
-}
-
-.block::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(ellipse 60% 40% at 30% 22%, rgba(255, 255, 255, 0.85), transparent 65%);
 }
 
 @keyframes blockPopIn {
@@ -330,45 +296,78 @@
   }
 }
 
-.blockWrapper.dragging .block {
-  box-shadow:
-    inset 0 3px 0 rgba(255, 255, 255, 0.55),
-    inset 0 -7px 10px color-mix(in srgb, var(--block-color) 40%, black 60%),
-    0 1.5px 0 color-mix(in srgb, var(--block-color) 62%, black 38%),
-    0 2px 3px -1px rgba(0, 0, 0, 0.45),
-    0 0 0 3px rgba(255, 255, 255, 0.95),
-    0 0 16px 4px rgba(255, 255, 255, 0.75);
+/* 方塊的形狀是單一剪影（整塊一個 clip-path 多邊形，沿格子邊界描出來，見
+   Board.tsx 的 blockShape.ts），疊三層做出立體卡通感：陰影（模糊、往下
+   位移，貼在地板上的落影）、底座（同形狀、顏色明顯更深，模擬側面切面）、
+   填色（真正看到的頂面）。三層共用同一個 bounding box 大小、同一份
+   --block-clip（JS 算好的 clip-path 多邊形），疊放順序（先陰影、再底座、
+   最後填色蓋上去）本身就是視覺上的堆疊順序，不用 z-index。--block-color
+   由 Board.tsx 直接內聯設成 hex 色碼（COLOR_HEX），設在 .blockShapeGroup
+   這一層，往下讓三個子層一起繼承，子層不用再各寫一次 8 色的 CSS class。 */
+.blockShapeGroup {
+  --block-color: #cccccc;
+  position: absolute;
+  inset: 0;
 }
 
-.block.red {
-  --block-color: #e6453f;
+.blockShapeLayer {
+  position: absolute;
+  inset: 0;
+  clip-path: var(--block-clip);
+  pointer-events: none;
 }
-.block.blue {
-  --block-color: #3b6fe0;
+
+.blockWrapper.exiting .blockShapeGroup {
+  animation: blockPopOut 460ms cubic-bezier(0.4, 0, 1, 1) forwards;
 }
-.block.green {
-  --block-color: #2fae66;
+
+/* 底座層跟填色層同一份形狀（只往外推 2px，蓋住兩層間可能露出的縫），維持
+   在格線本來的位置不動（底部剛好貼齊灰色格線，讀起來像方塊確實「站」在
+   格子裡）；真正墊出厚度感的是填色層本身往上位移 7px——這樣多出來的高度
+   是從上緣冒出來（像方塊的頂面被墊高、露出下面一圈深色底座），不是整塊
+   往下沉、下緣蓋過格線。 */
+.blockShadow {
+  background: rgba(40, 25, 10, 0.3);
+  filter: blur(4px);
+  transform: translate(2px, 3px);
 }
-.block.yellow {
-  --block-color: #e6b800;
+
+.blockBase {
+  background: color-mix(in srgb, var(--block-color) 55%, black 45%);
 }
-.block.pink {
-  --block-color: #d94fc0;
+
+.blockFill {
+  transform: translate(0, -7px);
+  background: linear-gradient(
+    155deg,
+    color-mix(in srgb, var(--block-color) 55%, white 45%) 0%,
+    var(--block-color) 45%,
+    color-mix(in srgb, var(--block-color) 80%, black 20%) 100%
+  );
+  pointer-events: auto;
+  box-shadow:
+    inset 0 4px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -5px 8px color-mix(in srgb, var(--block-color) 35%, black 65%);
+  animation: blockPopIn 360ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  animation-delay: var(--pop-delay, 0ms);
 }
-.block.orange {
-  --block-color: #e8842b;
+
+.blockFill::before {
+  content: "";
+  position: absolute;
+  inset: 6% 10% 58% 10%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 35% 30%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0) 70%);
 }
-.block.darkgreen {
-  --block-color: #1f7a3a;
-}
-.block.purple {
-  --block-color: #7c58df;
+
+.blockWrapper.dragging .blockFill {
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.9));
 }
 
 /* 牆：沿著不規則盤面外圍、沒有門的那一側補一段（座標數學見 Board.tsx 的
-   edgeStyle()），讀起來像圍住格子的實體邊框。跟 .block 一樣用「頂部亮邊
-   inset + 底部暗邊 inset + 外部落影」三層堆出厚度感，色階改成黑色系，
-   維持「牆是無機的邊框」、「方塊是有機的糖果」這組對比。 */
+   edgeStyle()），讀起來像圍住格子的實體邊框。用「頂部亮邊 inset + 底部暗邊
+   inset + 外部落影」三層堆出厚度感，色階用黑色系，維持「牆是無機的邊框」、
+   「方塊是有機的糖果」這組對比。 */
 /* border-radius 由 Board.tsx 的 edgeStyle()/edgeRadius() 依相鄰段落動態算出
    （inline style），讓連續的牆段落接成一整體、只在頭尾露出圓角。 */
 .wall {
@@ -383,9 +382,9 @@
 }
 
 /* 門：牆上開的一個長方體開口（座標數學見 Board.tsx 的 edgeStyle()），跟牆
-   一樣是方正的箱型（只是圓角略大一點做出「箱子」感，不是膠囊）。材質跟
-   .block 同款（inset 高光/暗邊 + ::before 放射狀玻璃反光），色彩取
-   currentColor（由 .door.red 等 class 設定），維持跟方塊同色系可辨識。 */
+   一樣是方正的箱型（只是圓角略大一點做出「箱子」感，不是膠囊）。材質用
+   inset 高光/暗邊 + ::before 放射狀玻璃反光，色彩取 currentColor（由
+   .door.red 等 class 設定），維持跟方塊同色系可辨識。 */
 /* border-radius 同樣由 Board.tsx 動態算出——同色相鄰的門段落接成一整體，
    不同顏色的門即使緊貼也各自保留頭尾圓角。 */
 .door {
