@@ -239,7 +239,8 @@
 /* 拖曳中直接跟手，不要用 transition 的緩動去追，避免視覺上的延遲感。
    spec.md 4.1：拖曳中的方塊放大約 6% 並帶白色外框光暈——同一個 transform
    宣告要整個覆寫（translate 算式照抄一份），CSS 沒辦法在既有 transform 上
-   再疊加一段。 */
+   再疊加一段。疊放順序（含拖曳中固定蓋過其他方塊）改由 Board.tsx 用
+   inline z-index 表達，見 computeStackRanks() 註解，這裡不再重複宣告。 */
 .blockWrapper.dragging {
   transition: none;
   transform: translate(
@@ -247,7 +248,6 @@
       calc(var(--anchor-row) * (var(--cell-size) + var(--cell-gap)) + var(--drag-offset-y))
     )
     scale(1.06);
-  z-index: 5;
 }
 
 /* 離場動畫：方塊已經被 exitBlock() 平移到「整塊都離開地板」的門外位置
