@@ -476,6 +476,11 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
   function handlePointerDown(blockId: string) {
     return (event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.pointerType === "mouse" && event.button !== 0) return;
+      // 擋掉瀏覽器對 pointerdown 的預設行為（文字選取／原生拖曳）。若不擋，
+      // 放開後方塊上會留著一段空的文字選取範圍，下一次在同一個方塊上按下時
+      // 瀏覽器會把它判定成「拖曳選取範圍」而觸發原生 dragstart，導致
+      // pointercancel、方塊卡住拖不動、游標還會變成瀏覽器原生的「禁止」圖示。
+      event.preventDefault();
       const { colPitch, rowPitch } = boardRef.current
         ? measureCellPitch(boardRef.current, cols, rows)
         : { colPitch: 0, rowPitch: 0 };

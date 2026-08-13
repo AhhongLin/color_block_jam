@@ -214,6 +214,23 @@ describe("Board 拖曳互動", () => {
     expect(wrapper.style.getPropertyValue("--drag-offset-x")).toBe("120px");
   });
 
+  it("按下方塊時會擋掉瀏覽器預設行為，避免殘留文字選取範圍讓下一次拖曳被原生 dragstart 打斷（回歸測試）", () => {
+    // 真實瀏覽器裡：pointerdown 沒擋掉預設行為的話，放開後方塊上會留一段空的
+    // 文字選取範圍；下一次在同一個方塊按下時，瀏覽器會把它判定成「拖曳選取
+    // 範圍」而觸發原生 dragstart → pointercancel，導致方塊卡住拖不動、游標
+    // 變成瀏覽器原生的「禁止」圖示。jsdom 不會模擬這整套原生行為，所以這裡
+    // 只斷言 preventDefault 真的被呼叫，從源頭避免選取範圍產生。
+    const { container } = render(<Board level={dragTestLevel} />);
+    const wrapper = getWrapper(container);
+
+    const event = new Event("pointerdown", { bubbles: true, cancelable: true });
+    Object.assign(event, { pointerType: "mouse", button: 0, pointerId: 1, clientX: 0, clientY: 0 });
+    const preventDefaultSpy = vi.spyOn(event, "preventDefault");
+    fireEvent(wrapper, event);
+
+    expect(preventDefaultSpy).toHaveBeenCalled();
+  });
+
   it("先往上拖、再往左拖時，方塊全程跟著滑鼠走：切軸瞬間先把已走的那一段結算進 anchor，不會整個跳回原始位置再重新移動", () => {
     // 3x3 開放盤面，方塊放在正中央，上下左右都還有 1 格可以走。
     const crossAxisLevel: Level = {
