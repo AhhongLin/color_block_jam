@@ -325,7 +325,7 @@ describe("Board 離場、過關與重設", () => {
     expect(screen.queryByRole("status")).toBeNull();
 
     act(() => {
-      vi.advanceTimersByTime(1200);
+      vi.advanceTimersByTime(2500);
     });
 
     // 動畫結束後，方塊完全從畫面上移除，過關訊息才出現。
@@ -409,7 +409,7 @@ describe("Board 離場、過關與重設", () => {
     expect(onComplete).not.toHaveBeenCalled();
 
     act(() => {
-      vi.advanceTimersByTime(1200);
+      vi.advanceTimersByTime(2500);
     });
 
     expect(onComplete).toHaveBeenCalledTimes(1);
@@ -514,7 +514,7 @@ describe("Board 音效（ticket 12）", () => {
     expect(playSound).not.toHaveBeenCalledWith("complete");
 
     act(() => {
-      vi.advanceTimersByTime(1200);
+      vi.advanceTimersByTime(2500);
     });
     expect(playSound).toHaveBeenCalledWith("complete");
   });

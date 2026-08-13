@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import type { CellCoord, Color, Door, Level, LevelBlock, Side } from "../../types/level";
-import { maxSlideSteps, translateCells, type Direction } from "../../game/slide";
+import { DIRECTION_DELTA, maxSlideSteps, translateCells, type Direction } from "../../game/slide";
 import { clampedStepsFromDistance, updateAxisTracker, type Axis, type AxisTracker } from "../../game/dragDirection";
 import { findExitDirection, isLevelComplete } from "../../game/exit";
 import { playSound } from "../../audio/sound";
@@ -27,14 +27,28 @@ interface BoardProps {
 // 位移量小於此門檻視為未拖曳（避免手指/滑鼠微小晃動被誤判成滑動）。
 const DRAG_THRESHOLD_PX = 12;
 
-// 方塊離場時，讓它視覺上再往外滑一步、同時炸開成粉粒消失的動畫時長。
-// EXIT_ANIMATION_MS 要跟 Board.module.css 的 `.blockWrapper` transition
-// 時長、`.blockWrapper.exiting .blockShapeGroup` 的 blockPopOut 動畫時長
-// 一致；BURST_ANIMATION_MS 要跟 `.crumb` 的 crumbFly 動畫時長一致——粉粒
-// 要比方塊本體晚一點消失，才有「爆開的粉塵還飄在空中」的尾韻，不是兩者
-// 同時瞬間消失。
-const EXIT_ANIMATION_MS = 460;
-const BURST_ANIMATION_MS = 1050;
+// 方塊離場時，讓它視覺上一路滑出門外、途中持續噴發粉粒直到整塊消失。
+// EXIT_STEP_MS 是「滑出一格」的單位時長——實際滑行總時長＝EXIT_STEP_MS ×
+// computeExitClearSteps() 算出的格數（L 形方塊短臂需要多滑幾格才能整塊
+// 出界，見該函式註解），同時也是粉粒每一波噴發之間的間隔，兩者共用同一個
+// 節奏，滑到哪波就在哪噴。
+const EXIT_STEP_MS = 500;
+// 粉粒噴發後停留在畫面上的時間，要跟 Board.module.css 的 `.crumb`
+// crumbFly 動畫時長一致。
+const CRUMB_FLY_MS = 2200;
+// 粉粒容器多留在畫面上、才真的移除 DOM 的緩衝時間，讓 CSS 動畫播完才
+// 移除，不會被 React 提早卸載切斷尾韻。
+const CRUMB_BURST_REMOVE_BUFFER_MS = 100;
+// 每格噴發的粉粒數量（多格方塊離場時分批噴發，見 exitBlock()
+// 的 dotsPerWave 換算）。
+const CRUMB_DOTS_PER_CELL = 56;
+// 粉粒飛散距離／尺寸的倍率——1 是最初的手感，這裡刻意誇張放大，噴更遠、
+// 顆粒更大才夠有份量。
+const CRUMB_SPREAD_SCALE = 2.1;
+// 離場方塊掛進 exitingBlocks 後，隔多久才把格子改成 exitedCells、觸發真正
+// 的滑出 transition（見 exitBlock()）。夠短、人眼感覺不到延遲，
+// 但夠讓瀏覽器先畫出一幀起點畫面，CSS transition 才有「起點」可以動畫。
+const EXIT_SLIDE_START_DELAY_MS = 20;
 
 // 跟 Board.module.css 的 --block-color（透過 Board.tsx 內聯設在
 // .blockShapeGroup 上）同一套色票——離場粉粒是獨立於方塊本體的元素（方塊
@@ -50,8 +64,6 @@ const COLOR_HEX: Record<Color, string> = {
   darkgreen: "#1f7a3a",
   purple: "#7c58df",
 };
-
-const BURST_DOTS_PER_CELL = 9;
 
 interface CrumbDot {
   dx: string;
@@ -75,25 +87,49 @@ interface CrumbBurst {
   cells: CrumbCellBurst[];
 }
 
-// 一格炸開的粉粒角度沿一整圈平均分佈、再加隨機抖動，距離/大小也各自帶一點
-// 隨機——避免看起來像複製貼上的規律圖案，而是碎屑四散的手感。距離/尺寸都
-// 刻意誇張一點（超出格子本身範圍不少），效果才會夠明顯，不會一閃即逝看不清楚。
-function createCrumbCellDots(): CrumbDot[] {
-  return Array.from({ length: BURST_DOTS_PER_CELL }, (_, i) => {
-    const angle = (Math.PI * 2 * i) / BURST_DOTS_PER_CELL + (Math.random() - 0.5) * 0.6;
-    const distance = 26 + Math.random() * 32;
+// 方塊往哪個方向出門，粉粒的噴發角度基準就對齊那個方向（畫面座標：x 右正、
+// y 下正，跟 row/col 的 dx/dy 是同一套系統）。
+const EXIT_DIRECTION_ANGLE_RAD: Record<Direction, number> = {
+  right: 0,
+  down: Math.PI / 2,
+  left: Math.PI,
+  up: -Math.PI / 2,
+};
+
+// 粉粒噴發的錐形張角——不是整圈 360° 平均噴發（那是在原地炸開的感覺），
+// 只朝「方塊出門的方向」噴一個扇形，才會有「一出門就對著門外炸開」的方向
+// 感，不是站在門口原地爆炸。130° 抓一個夠寬的扇形，噴出去還是有炸裂的散開
+// 感，不會窄成一直線的雷射感。
+const CRUMB_SPRAY_CONE_RAD = (130 * Math.PI) / 180;
+
+// 一格炸開的粉粒角度在「出門方向」為中心的扇形內平均分佈、再加隨機抖動，
+// 距離/大小也各自帶一點隨機——避免看起來像複製貼上的規律圖案，而是碎屑
+// 四散的手感。距離/尺寸都刻意誇張一點（超出格子本身範圍不少），效果才會
+// 夠明顯，不會一閃即逝看不清楚。
+function createCrumbCellDots(dotsPerCell: number, direction: Direction = "up"): CrumbDot[] {
+  const baseAngle = EXIT_DIRECTION_ANGLE_RAD[direction];
+  const denom = Math.max(dotsPerCell - 1, 1);
+  // size 的倍率刻意比 distance 溫和，不然 CRUMB_SPREAD_SCALE 拉到 2 倍時
+  // 顆粒會腫成一坨看不出碎屑感，噴更遠但顆粒不用等比例變大。
+  const sizeScale = 1 + (CRUMB_SPREAD_SCALE - 1) * 0.5;
+  return Array.from({ length: dotsPerCell }, (_, i) => {
+    const spread = (i / denom - 0.5) * CRUMB_SPRAY_CONE_RAD;
+    const jitter = (Math.random() - 0.5) * ((20 * Math.PI) / 180);
+    const angle = baseAngle + spread + jitter;
+    const distance = (26 + Math.random() * 32) * CRUMB_SPREAD_SCALE;
     return {
       dx: `${(Math.cos(angle) * distance).toFixed(1)}px`,
       dy: `${(Math.sin(angle) * distance).toFixed(1)}px`,
       rot: `${Math.floor(Math.random() * 360) - 180}deg`,
-      size: `${(5 + Math.random() * 5).toFixed(1)}px`,
+      size: `${((5 + Math.random() * 5) * sizeScale).toFixed(1)}px`,
     };
   });
 }
 
 // 每個離場方塊自己的格子都各自炸開一圈粉粒（不是整個方塊共用一個爆點），
-// 多格方塊看起來才會像「整塊碎開」而不是從單一個點噴出來。
-function createCrumbBurst(block: LevelBlock): CrumbBurst {
+// 多格方塊看起來才會像「整塊碎開」而不是從單一個點噴出來；所有格子共用
+// 同一個出門方向，噴發扇形才會一致朝門外散開。
+function createCrumbBurst(block: LevelBlock, dotsPerCell: number, direction: Direction = "up"): CrumbBurst {
   const rows = block.cells.map(([row]) => row);
   const cols = block.cells.map(([, col]) => col);
   return {
@@ -103,7 +139,11 @@ function createCrumbBurst(block: LevelBlock): CrumbBurst {
       row: rows.reduce((sum, row) => sum + row, 0) / rows.length,
       col: cols.reduce((sum, col) => sum + col, 0) / cols.length,
     },
-    cells: block.cells.map(([row, col]) => ({ row, col, dots: createCrumbCellDots() })),
+    cells: block.cells.map(([row, col]) => ({
+      row,
+      col,
+      dots: createCrumbCellDots(dotsPerCell, direction),
+    })),
   };
 }
 
@@ -118,6 +158,29 @@ function cellCenterStyle(row: number, col: number): CSSProperties {
 
 function cellKey(row: number, col: number) {
   return `${row},${col}`;
+}
+
+// L 形這類凹形方塊的「短臂」可能還沒真正貼到邊界（見 exit.ts 的
+// leadingCells／canExit 註解——只要求前緣至少一格頂到邊界，不強求每一格都
+// 頂到）。離場時如果只把整塊平移 1 格，短臂那幾格會還壓在地板上，粉粒就會
+// 在門內炸開，而不是門外（使用者反饋）。這裡逐格往 direction 方向投影，
+// 找出「這一格自己也離開地板」需要的步數，取所有格子裡最大的那個值，保證
+// 平移這麼多步之後，整塊沒有任何一格還壓在地板上。
+function computeExitClearSteps(floorSet: Set<string>, cells: CellCoord[], direction: Direction): number {
+  const [dr, dc] = DIRECTION_DELTA[direction];
+  let maxSteps = 1;
+  for (const [r, c] of cells) {
+    let row = r;
+    let col = c;
+    let steps = 0;
+    while (floorSet.has(cellKey(row, col))) {
+      row += dr;
+      col += dc;
+      steps += 1;
+    }
+    maxSteps = Math.max(maxSteps, steps);
+  }
+  return maxSteps;
 }
 
 // 方塊的立體卡通材質疊三層畫（陰影／底座／填色，見 Board.module.css 的
@@ -316,9 +379,24 @@ function blocksWithOverride(blocks: LevelBlock[], blockId: string, cells: CellCo
   return blocks.map((block) => (block.id === blockId ? { ...block, cells } : block));
 }
 
+// 離場中的方塊除了格子（滑到哪）還要記住這一次滑行總共花多久（slideMs），
+// 每次離場滑行的格數可能不同（見 computeExitClearSteps()），沒辦法像
+// CRUMB_FLY_MS 那樣全域共用一個常數值，要跟著方塊一起存。
+interface ExitingBlock extends LevelBlock {
+  slideMs: number;
+  // 剛掛進 exitingBlocks 時是 false（維持在原本位置、opacity 1，跟前一幀
+  // 無縫接上）；exitBlock() 的 setTimeout 延遲那一拍才翻成
+  // true，同時把 cells 換成 exitedCells——兩者要一起變，因為淡出的目標
+  // opacity: 0 樣式如果一開始就套用在剛掛載的全新元素上，CSS transition
+  // 沒有「上一個 opacity」可以動畫（新掛載的元素沒有前一次的 paint 結果），
+  // 會直接瞬間變不可見，看起來就像方塊還沒開始滑就先消失了。見
+  // Board.module.css 的 .blockWrapper.exitingSlide。
+  sliding: boolean;
+}
+
 export function Board({ level, onComplete, backLink }: BoardProps) {
   const [blocks, setBlocks] = useState<LevelBlock[]>(level.blocks);
-  const [exitingBlocks, setExitingBlocks] = useState<LevelBlock[]>([]);
+  const [exitingBlocks, setExitingBlocks] = useState<ExitingBlock[]>([]);
   const [bursts, setBursts] = useState<CrumbBurst[]>([]);
   const [dragOffset, setDragOffset] = useState<DragOffset | null>(null);
   // 方塊是單一剪影（clip-path 沿格子邊界描出的多邊形，見 blockShape.ts），
@@ -397,28 +475,69 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
     }
   }, [isComplete]);
 
-  // 方塊滑到同色門對齊的邊界時觸發：把它從 blocks 移除（往後的碰撞判定視同
-  // 它已經不在盤面上），讓它以目前方向再往外滑一步、同時在滑到的位置炸開
-  // 一圈粉粒，短暫顯示後移除，做出「滑出盤面、爆成碎屑消失」的動畫，而不是
-  // 瞬間憑空不見。
+  // 方塊滑到同色門對齊的邊界時觸發的離場動畫——不是「原地爆炸」，是整塊
+  // 持續往門外滑，滑到哪就在哪噴一波粉粒，直到整塊都離開地板（見
+  // computeExitClearSteps()）才消失，做出「一路噴到消失」的觀感（只翻 1
+  // 格對 L 形方塊的短臂不夠，粉粒會在門內噴發；改成整塊真正出界需要幾步
+  // 就滑幾步、噴幾波）。
   function exitBlock(block: LevelBlock, direction: Direction) {
     playSound("exit");
     setBlocks((prev) => prev.filter((b) => b.id !== block.id));
-    const exitedCells = translateCells(block.cells, direction, 1);
-    setExitingBlocks((prev) => [...prev, { ...block, cells: exitedCells }]);
-    setBursts((prev) => [...prev, createCrumbBurst({ ...block, cells: exitedCells })]);
+
+    const clearSteps = computeExitClearSteps(floorSet, block.cells, direction);
+    const exitedCells = translateCells(block.cells, direction, clearSteps);
+    const slideMs = EXIT_STEP_MS * clearSteps;
+
+    // 先掛進 exitingBlocks 時，格子維持「還沒平移」的原始位置（跟它在
+    // blocks 裡消失前的最後位置完全一樣）——這一幀在畫面上跟前一幀無縫接
+    // 上，不會有位置跳動。真正的滑出動畫要等下面用 setTimeout 把格子改成
+    // exitedCells 才觸發：因為這是「同一個」exitingBlocks 陣列裡的同一個
+    // 項目被更新（不是從 blocks 陣列搬到 exitingBlocks 陣列的全新掛載），
+    // React 才會把它當成同一個 DOM 節點的屬性變化，CSS 的 transform
+    // transition 才有「起點」可以真正播出滑動過程；如果一開始就直接掛
+    // exitedCells，等於方塊在 exitingBlocks 裡是全新掛載，瀏覽器沒有
+    // 「上一個位置」可以動畫，畫面上就會直接瞬間出現在終點，不管
+    // --exit-slide-ms 設多長都看不到滑動（使用者反饋：500ms 了還是看不到
+    // 移動過程，根源就是這個）。原本試過用兩層 requestAnimationFrame 做這
+    // 個延遲，但 rAF 在分頁不在前景（例如背景分頁）時不保證會執行，實測
+    // 發現這正是「調到 500ms 還是看不到滑動」的真正原因；改用 setTimeout
+    // 不依賴分頁是否在前景，才能穩定觸發。
+    setExitingBlocks((prev) => [...prev, { ...block, slideMs, sliding: false }]);
+    const startSlideTimerId = setTimeout(() => {
+      exitTimersRef.current.delete(startSlideTimerId);
+      setExitingBlocks((prev) =>
+        prev.map((b) => (b.id === block.id ? { ...b, cells: exitedCells, sliding: true } : b)),
+      );
+    }, EXIT_SLIDE_START_DELAY_MS);
+    exitTimersRef.current.add(startSlideTimerId);
+
+    // 每滑 1 格補一波粉粒，波次間隔跟滑 1 格的時間同步（EXIT_STEP_MS），
+    // 粉粒噴發的位置也跟著那一步的座標走，才會是「跟著滑行路徑一路噴」而不是
+    // 只在起點或終點炸一次。總粉粒數量在各波之間平分，維持跟單波時差不多的
+    // 密度，不會因為拆成多波而變稀疏或變得過量。
+    const waveCount = clearSteps;
+    const dotsPerWave = Math.max(4, Math.round(CRUMB_DOTS_PER_CELL / waveCount));
+    for (let wave = 1; wave <= waveCount; wave += 1) {
+      const waveCells = translateCells(block.cells, direction, wave);
+      const waveId = `${block.id}-exit-wave${wave}`;
+      const spawnTimerId = setTimeout(() => {
+        exitTimersRef.current.delete(spawnTimerId);
+        const newBurst = createCrumbBurst({ id: waveId, color: block.color, cells: waveCells }, dotsPerWave, direction);
+        setBursts((prev) => [...prev, newBurst]);
+        const removeTimerId = setTimeout(() => {
+          setBursts((prev) => prev.filter((b) => b.id !== waveId));
+          exitTimersRef.current.delete(removeTimerId);
+        }, CRUMB_FLY_MS + CRUMB_BURST_REMOVE_BUFFER_MS);
+        exitTimersRef.current.add(removeTimerId);
+      }, (wave - 1) * EXIT_STEP_MS);
+      exitTimersRef.current.add(spawnTimerId);
+    }
 
     const wrapperTimerId = setTimeout(() => {
       setExitingBlocks((prev) => prev.filter((b) => b.id !== block.id));
       exitTimersRef.current.delete(wrapperTimerId);
-    }, EXIT_ANIMATION_MS);
+    }, slideMs + EXIT_SLIDE_START_DELAY_MS);
     exitTimersRef.current.add(wrapperTimerId);
-
-    const burstTimerId = setTimeout(() => {
-      setBursts((prev) => prev.filter((b) => b.id !== block.id));
-      exitTimersRef.current.delete(burstTimerId);
-    }, BURST_ANIMATION_MS);
-    exitTimersRef.current.add(burstTimerId);
   }
 
   function resetLevel() {
@@ -564,7 +683,7 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
 
   function renderBlockWrapper(
     block: LevelBlock,
-    options: { interactive: boolean; extraClassName?: string; popDelayMs?: number },
+    options: { interactive: boolean; extraClassName?: string; popDelayMs?: number; slideMs?: number },
   ) {
     const { anchorRow, anchorCol, shapeRows, shapeCols } = boundingBox(block.cells);
     const isDragging = options.interactive && dragOffset?.blockId === block.id;
@@ -583,6 +702,10 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
       "--anchor-row": anchorRow,
       "--anchor-col": anchorCol,
       "--pop-delay": `${options.popDelayMs ?? 0}ms`,
+      // 離場滑行總時長每次可能不同（見 ExitingBlock/computeExitClearSteps()），
+      // 內聯設在這個 wrapper 上覆寫 Board.module.css `.blockWrapper.exiting`
+      // 的預設值。
+      ...(options.slideMs !== undefined ? { "--exit-slide-ms": `${options.slideMs}ms` } : {}),
       ...(isDragging && dragOffset
         ? { "--drag-offset-x": `${dragOffset.offsetXPx}px`, "--drag-offset-y": `${dragOffset.offsetYPx}px` }
         : {}),
@@ -683,7 +806,16 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
             renderBlockWrapper(block, { interactive: true, popDelayMs: index * 60 }),
           )}
           {exitingBlocks.map((block) =>
-            renderBlockWrapper(block, { interactive: false, extraClassName: styles.exiting }),
+            renderBlockWrapper(block, {
+              interactive: false,
+              // .exitingSlide 只在 sliding 翻 true 那一刻才加上（跟 cells
+              // 改成 exitedCells 同一個 setState），opacity: 0 這個目標值
+              // 才會是「現有元素的樣式變化」而不是「全新掛載元素的初始樣
+              // 式」，CSS transition 才有辦法真的淡出，不會一開始就瞬間
+              // 不可見（見 ExitingBlock.sliding 的註解）。
+              extraClassName: [styles.exiting, block.sliding ? styles.exitingSlide : null].filter(Boolean).join(" "),
+              slideMs: block.slideMs,
+            }),
           )}
 
           {bursts.map((burst) => (

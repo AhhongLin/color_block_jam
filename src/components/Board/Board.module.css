@@ -222,6 +222,7 @@
   position: absolute;
   top: 0;
   left: 0;
+  opacity: 1;
   transform: translate(
     calc(var(--anchor-col) * (var(--cell-size) + var(--cell-gap)) + var(--drag-offset-x)),
     calc(var(--anchor-row) * (var(--cell-size) + var(--cell-gap)) + var(--drag-offset-y))
@@ -250,35 +251,36 @@
   z-index: 5;
 }
 
-/* 離場動畫：方塊已經被 exitBlock() 平移到盤面外一格，這裡負責滑到那個
-   位置（transform transition）、停用互動游標；方塊本體怎麼消失交給下面
-   .blockWrapper.exiting .blockShapeGroup 的 blockPopOut 動畫（炸開感），
-   不是單純淡出。實際從畫面上移除交給 Board.tsx 的 setTimeout。 */
+/* 離場動畫：方塊已經被 exitBlock() 平移到「整塊都離開地板」的門外位置
+   （見 Board.tsx 的 computeExitClearSteps()），這裡負責滑到那個位置同時
+   淡出（transform + opacity 同一個 transition 一起跑），停用互動游標。
+   時長吃 --exit-slide-ms（由 Board.tsx 依這次離場實際滑行的格數 ×
+   EXIT_STEP_MS 算出，每次離場可能不同，所以是內聯設在該方塊 wrapper 上，
+   不是設在 .board 那種全域共用值）。不再用誇張的「膨脹
+   →旋轉炸裂」（原本的 blockPopOut）單次爆開——那個效果現在交給 Board.tsx
+   在滑行途中持續補上的粉粒噴發波次做，方塊本體只需要單純滑出＋淡出，跟
+   粉粒噴發的節奏才不會互相搶戲。實際從畫面上移除交給 Board.tsx 的
+   setTimeout（跟這裡的 transition 時長同步）。
+
+   .exiting 只放「不會變動」的靜態樣式（游標／transition 宣告）；淡出的
+   目標 opacity: 0 特地拆到下面的 .exitingSlide，且只在 Board.tsx 的
+   sliding 狀態翻 true 那一刻才加上這個 class。原因：.exiting 這個
+   class 是這個 wrapper 元素「第一次掛載」就帶著的（見 Board.tsx 的
+   ExitingBlock.sliding 註解），如果 opacity: 0 直接寫在 .exiting 上，
+   瀏覽器會把它當成這個全新元素的初始樣式（沒有「前一次 paint」可以
+   transition from），畫面上就是瞬間不可見，而不是真的淡出——這正是
+   「調到 500ms 還是完全看不到過程」的另一半原因（另一半是 transform，
+   已經用同樣的兩階段套用手法解決）。 */
 .blockWrapper.exiting {
   pointer-events: none;
   cursor: default;
-  transition: transform 160ms ease-in;
+  transition:
+    transform var(--exit-slide-ms, 300ms) ease-in,
+    opacity var(--exit-slide-ms, 300ms) ease-in;
 }
 
-/* 整個形狀（陰影／底座／填色三層一起，見下面 .blockShapeGroup）「誇張
-   膨脹→旋轉炸裂」消失，搭配 Board.tsx 同時噴出的 .crumb 粉粒跟
-   .crumbFlash/.crumbRing 衝擊波，做出卡通爆開的效果，不是原本單純的淡出。
-   用 animation（而非 transition）是因為要多段式的縮放/旋轉曲線，CSS
-   transition 只能處理單段緩動。膨脹幅度（1.5 倍）跟旋轉角度都刻意放大，
-   時間拉到 320ms，效果才夠明顯、看得清楚，不會一閃即逝。 */
-@keyframes blockPopOut {
-  0% {
-    transform: scale(1) rotate(0deg);
-    opacity: 1;
-  }
-  25% {
-    transform: scale(1.5) rotate(-16deg);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(0) rotate(26deg);
-    opacity: 0;
-  }
+.blockWrapper.exitingSlide {
+  opacity: 0;
 }
 
 @keyframes blockPopIn {
@@ -315,10 +317,6 @@
   inset: 0;
   clip-path: var(--block-clip);
   pointer-events: none;
-}
-
-.blockWrapper.exiting .blockShapeGroup {
-  animation: blockPopOut 460ms cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
 /* 底座層跟填色層同一份形狀（只往外推 2px，蓋住兩層間可能露出的縫），維持
@@ -455,10 +453,15 @@
   width: var(--size, 6px);
   height: var(--size, 6px);
   border-radius: 30%;
-  background: var(--dot-color, #fff);
-  box-shadow: 0 0 6px 1px color-mix(in srgb, var(--dot-color, #fff) 55%, transparent);
+  /* 粉粒刻意比方塊本體的顏色淡、亮一點（跟白混），比純色的方塊本體更有
+     「粉塵」的輕盈感。 */
+  background: color-mix(in srgb, var(--dot-color, #fff) 62%, white 38%);
+  box-shadow: 0 0 7px 1px color-mix(in srgb, var(--dot-color, #fff) 45%, white 30%);
   transform: translate(-50%, -50%);
-  animation: crumbFly 950ms cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
+  /* 時長要跟 Board.tsx 的 CRUMB_FLY_MS 一致。淡出提前到 40%~80% 之間完成
+     （不是撐到接近 100% 才淡），最後 20% 純粹是「已經看不見、DOM 還沒真的
+     移除」的緩衝，才不會感覺尾巴拖很長。 */
+  animation: crumbFly 2200ms cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
 }
 
 @keyframes crumbFly {
@@ -466,12 +469,16 @@
     opacity: 1;
     transform: translate(-50%, -50%) translate(0, 0) rotate(0deg) scale(1);
   }
-  60% {
+  40% {
     opacity: 1;
+  }
+  80% {
+    opacity: 0;
+    transform: translate(-50%, -50%) translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(0.3);
   }
   100% {
     opacity: 0;
-    transform: translate(-50%, -50%) translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(0.3);
+    transform: translate(-50%, -50%) translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(0.25);
   }
 }
 
@@ -527,3 +534,4 @@
     border-width: 0.5px;
   }
 }
+
