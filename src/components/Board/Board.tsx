@@ -30,9 +30,13 @@ const DRAG_THRESHOLD_PX = 12;
 // 方塊離場時，讓它視覺上一路滑出門外、途中持續噴發粉粒直到整塊消失。
 // EXIT_STEP_MS 是「滑出一格」的單位時長——實際滑行總時長＝EXIT_STEP_MS ×
 // computeExitClearSteps() 算出的格數（L 形方塊短臂需要多滑幾格才能整塊
-// 出界，見該函式註解），同時也是粉粒每一波噴發之間的間隔，兩者共用同一個
-// 節奏，滑到哪波就在哪噴。
+// 出界，見該函式註解）。
 const EXIT_STEP_MS = 500;
+// 粉粒噴發的節奏改用獨立的時間間隔，不再綁在 EXIT_STEP_MS（滑 1 格的時
+// 長）上——原本一格只噴一波太稀疏，使用者反饋噴發頻率要高一些。這個間隔
+// 只決定「多常補一波」，跟方塊滑行速度無關，滑行總時長（slideMs）不變，
+// 只是在同樣的時間內拆成更多、更密的波次。
+const CRUMB_WAVE_INTERVAL_MS = 140;
 // 粉粒噴發後停留在畫面上的時間，要跟 Board.module.css 的 `.crumb`
 // crumbFly 動畫時長一致。
 const CRUMB_FLY_MS = 2200;
@@ -181,6 +185,51 @@ function computeExitClearSteps(floorSet: Set<string>, cells: CellCoord[], direct
     maxSteps = Math.max(maxSteps, steps);
   }
   return maxSteps;
+}
+
+// 粉粒噴發的初始點要固定在「門」，不是跟著方塊一路滑出去噴（碎木機是東西
+// 從門口進去、在門口原地噴出碎屑，不是邊走邊噴）。門格座標跟 exit.ts 的
+// canExit() 判斷門的投影邏輯是同一套：沿 direction 方向projections
+// 到剛好離開地板前的最後一格地板，就是這一路（column/row）對齊的門格。
+// 用 Set 去重——同一路（同一 row 或 col）上如果方塊有不只一格（例如 L 形的
+// 短臂跟長臂在同一路上），這些格子投影出來會落在同一個門格，只留一份。
+function computeDoorAlignedCells(floorSet: Set<string>, cells: CellCoord[], direction: Direction): CellCoord[] {
+  const [dr, dc] = DIRECTION_DELTA[direction];
+  const seen = new Set<string>();
+  const doorCells: CellCoord[] = [];
+  for (const [r, c] of cells) {
+    let row = r;
+    let col = c;
+    while (floorSet.has(cellKey(row, col))) {
+      row += dr;
+      col += dc;
+    }
+    row -= dr;
+    col -= dc;
+    const key = cellKey(row, col);
+    if (!seen.has(key)) {
+      seen.add(key);
+      doorCells.push([row, col]);
+    }
+  }
+  return doorCells;
+}
+
+// 粉粒的噴發錨點要落在「門外一點點」，不是門內側最後一格地板的正中心——
+// 使用者反饋：門本身就該像碎木機的出口，粉屑一噴出來就已經在門外，不是從
+// 門裡面噴出來。0.5 是從格子中心走到格子邊界（地板跟門交界處）的距離；
+// 0.22 是門本身往外凸出的厚度比例（跟 Board.module.css 的
+// .blockClipLayer／BOUNDARY_THICKNESS 同一個數字），加上去剛好落在門的外
+// 緣——不再額外多推一截（原本+0.1），使用者反饋噴發點離門太遠，貼著門
+// 外緣就好。
+const DOOR_BURST_OFFSET_CELLS = 0.5 + 0.22;
+
+// 把 computeDoorAlignedCells() 算出的門格座標，沿著 direction 方向再往外
+// 推 DOOR_BURST_OFFSET_CELLS，得到粉粒真正的噴發錨點（cellCenterStyle()
+// 本來就吃 calc() 表達式，小數座標直接可用，不需要另外對齊整數格）。
+function offsetPastDoor(cells: CellCoord[], direction: Direction): CellCoord[] {
+  const [dr, dc] = DIRECTION_DELTA[direction];
+  return cells.map(([row, col]) => [row + dr * DOOR_BURST_OFFSET_CELLS, col + dc * DOOR_BURST_OFFSET_CELLS]);
 }
 
 // 方塊的立體卡通材質疊三層畫（陰影／底座／填色，見 Board.module.css 的
@@ -384,14 +433,6 @@ function blocksWithOverride(blocks: LevelBlock[], blockId: string, cells: CellCo
 // CRUMB_FLY_MS 那樣全域共用一個常數值，要跟著方塊一起存。
 interface ExitingBlock extends LevelBlock {
   slideMs: number;
-  // 剛掛進 exitingBlocks 時是 false（維持在原本位置、opacity 1，跟前一幀
-  // 無縫接上）；exitBlock() 的 setTimeout 延遲那一拍才翻成
-  // true，同時把 cells 換成 exitedCells——兩者要一起變，因為淡出的目標
-  // opacity: 0 樣式如果一開始就套用在剛掛載的全新元素上，CSS transition
-  // 沒有「上一個 opacity」可以動畫（新掛載的元素沒有前一次的 paint 結果），
-  // 會直接瞬間變不可見，看起來就像方塊還沒開始滑就先消失了。見
-  // Board.module.css 的 .blockWrapper.exitingSlide。
-  sliding: boolean;
 }
 
 export function Board({ level, onComplete, backLink }: BoardProps) {
@@ -475,17 +516,19 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
     }
   }, [isComplete]);
 
-  // 方塊滑到同色門對齊的邊界時觸發的離場動畫——不是「原地爆炸」，是整塊
-  // 持續往門外滑，滑到哪就在哪噴一波粉粒，直到整塊都離開地板（見
-  // computeExitClearSteps()）才消失，做出「一路噴到消失」的觀感（只翻 1
-  // 格對 L 形方塊的短臂不夠，粉粒會在門內噴發；改成整塊真正出界需要幾步
-  // 就滑幾步、噴幾波）。
+  // 方塊滑到同色門對齊的邊界時觸發的離場動畫：整塊持續往門外滑到完全離開
+  // 地板才消失（見 computeExitClearSteps()），但粉粒噴發的位置固定釘在門外
+  // 一點點（見 computeDoorAlignedCells()／offsetPastDoor()），不跟著方塊
+  // 移動——做出「東西從門口塞進去、門就是碎木機的出口，粉屑一噴出來就已經
+  // 在門外」的觀感，而不是方塊自己邊滑邊掉屑（使用者反饋）。滑幾步就噴幾
+  // 波，只是每一波的落點都是同一批門外錨點。
   function exitBlock(block: LevelBlock, direction: Direction) {
     playSound("exit");
     setBlocks((prev) => prev.filter((b) => b.id !== block.id));
 
     const clearSteps = computeExitClearSteps(floorSet, block.cells, direction);
     const exitedCells = translateCells(block.cells, direction, clearSteps);
+    const doorCells = offsetPastDoor(computeDoorAlignedCells(floorSet, block.cells, direction), direction);
     const slideMs = EXIT_STEP_MS * clearSteps;
 
     // 先掛進 exitingBlocks 時，格子維持「還沒平移」的原始位置（跟它在
@@ -502,34 +545,32 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
     // 個延遲，但 rAF 在分頁不在前景（例如背景分頁）時不保證會執行，實測
     // 發現這正是「調到 500ms 還是看不到滑動」的真正原因；改用 setTimeout
     // 不依賴分頁是否在前景，才能穩定觸發。
-    setExitingBlocks((prev) => [...prev, { ...block, slideMs, sliding: false }]);
+    setExitingBlocks((prev) => [...prev, { ...block, slideMs }]);
     const startSlideTimerId = setTimeout(() => {
       exitTimersRef.current.delete(startSlideTimerId);
-      setExitingBlocks((prev) =>
-        prev.map((b) => (b.id === block.id ? { ...b, cells: exitedCells, sliding: true } : b)),
-      );
+      setExitingBlocks((prev) => prev.map((b) => (b.id === block.id ? { ...b, cells: exitedCells } : b)));
     }, EXIT_SLIDE_START_DELAY_MS);
     exitTimersRef.current.add(startSlideTimerId);
 
-    // 每滑 1 格補一波粉粒，波次間隔跟滑 1 格的時間同步（EXIT_STEP_MS），
-    // 粉粒噴發的位置也跟著那一步的座標走，才會是「跟著滑行路徑一路噴」而不是
-    // 只在起點或終點炸一次。總粉粒數量在各波之間平分，維持跟單波時差不多的
-    // 密度，不會因為拆成多波而變稀疏或變得過量。
-    const waveCount = clearSteps;
-    const dotsPerWave = Math.max(4, Math.round(CRUMB_DOTS_PER_CELL / waveCount));
+    // 波次間隔用 CRUMB_WAVE_INTERVAL_MS（獨立於滑行速度，見該常數註解），
+    // 在整段 slideMs 時間內盡量塞滿波次，才會是持續、高頻的噴發，不是滑一
+    // 格才補一下。每一波都噴在同一批門格（doorCells）上，不是跟著方塊那一
+    // 步的座標走——碎木機是持續從門口噴屑，不是邊移動邊掉屑。總粉粒數量在
+    // 各波之間平分，維持大致固定的總密度，不會因為波次變多而變得過量。
+    const waveCount = Math.max(clearSteps, Math.round(slideMs / CRUMB_WAVE_INTERVAL_MS));
+    const dotsPerWave = Math.max(3, Math.round(CRUMB_DOTS_PER_CELL / waveCount));
     for (let wave = 1; wave <= waveCount; wave += 1) {
-      const waveCells = translateCells(block.cells, direction, wave);
       const waveId = `${block.id}-exit-wave${wave}`;
       const spawnTimerId = setTimeout(() => {
         exitTimersRef.current.delete(spawnTimerId);
-        const newBurst = createCrumbBurst({ id: waveId, color: block.color, cells: waveCells }, dotsPerWave, direction);
+        const newBurst = createCrumbBurst({ id: waveId, color: block.color, cells: doorCells }, dotsPerWave, direction);
         setBursts((prev) => [...prev, newBurst]);
         const removeTimerId = setTimeout(() => {
           setBursts((prev) => prev.filter((b) => b.id !== waveId));
           exitTimersRef.current.delete(removeTimerId);
         }, CRUMB_FLY_MS + CRUMB_BURST_REMOVE_BUFFER_MS);
         exitTimersRef.current.add(removeTimerId);
-      }, (wave - 1) * EXIT_STEP_MS);
+      }, (wave - 1) * CRUMB_WAVE_INTERVAL_MS);
       exitTimersRef.current.add(spawnTimerId);
     }
 
@@ -802,32 +843,32 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
             />
           ))}
 
-          {blocks.map((block, index) =>
-            renderBlockWrapper(block, { interactive: true, popDelayMs: index * 60 }),
-          )}
-          {exitingBlocks.map((block) =>
-            renderBlockWrapper(block, {
-              interactive: false,
-              // .exitingSlide 只在 sliding 翻 true 那一刻才加上（跟 cells
-              // 改成 exitedCells 同一個 setState），opacity: 0 這個目標值
-              // 才會是「現有元素的樣式變化」而不是「全新掛載元素的初始樣
-              // 式」，CSS transition 才有辦法真的淡出，不會一開始就瞬間
-              // 不可見（見 ExitingBlock.sliding 的註解）。
-              extraClassName: [styles.exiting, block.sliding ? styles.exitingSlide : null].filter(Boolean).join(" "),
-              slideMs: block.slideMs,
-            }),
-          )}
+          {/* 方塊本體（可拖曳中＋離場中）都關在這一層裡，讓 Board.module.css
+              的 .blockClipLayer 用 clip-path 卡出門的範圍——超出這個範圍就
+              整個看不見，是實際的空間邊界，不是猜時間淡出（見該 class 的
+              註解）。門、牆、地板、粉粒都留在這層外面，才不會被一起裁掉。 */}
+          <div className={styles.blockClipLayer}>
+            {blocks.map((block, index) =>
+              renderBlockWrapper(block, { interactive: true, popDelayMs: index * 60 }),
+            )}
+            {exitingBlocks.map((block) =>
+              renderBlockWrapper(block, {
+                interactive: false,
+                extraClassName: styles.exiting,
+                slideMs: block.slideMs,
+              }),
+            )}
+          </div>
 
           {bursts.map((burst) => (
             <Fragment key={`burst-${burst.id}`}>
-              {/* 整塊方塊共用一次閃光＋衝擊波，強化「爆炸」的第一擊；下面每格
-                  各自噴發的粉粒才是持續飛散的碎屑，兩層疊在一起才夠誇張。 */}
+              {/* 整塊方塊共用一次閃光，強化「爆炸」的第一擊；下面每格各自噴發
+                  的粉粒才是持續飛散的碎屑，兩層疊在一起才夠誇張。 */}
               <div
                 className={styles.crumbBurst}
                 style={{ ...cellCenterStyle(burst.center.row, burst.center.col), "--dot-color": burst.color } as CSSProperties}
               >
                 <span className={styles.crumbFlash} />
-                <span className={styles.crumbRing} />
               </div>
 
               {burst.cells.map((cell) => (

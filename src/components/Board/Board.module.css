@@ -111,8 +111,7 @@
     bannerWiggle 1400ms ease-in-out 560ms infinite;
 }
 
-/* 貼紙外圍一圈持續脈動擴散的光暈，呼應方塊離場時 .crumbRing 的手法，讓過關
-   時刻的視覺語言前後一致。 */
+/* 貼紙外圍一圈持續脈動擴散的光暈，強調過關這一刻。 */
 .completeBanner::before {
   content: "";
   position: absolute;
@@ -252,35 +251,44 @@
 }
 
 /* 離場動畫：方塊已經被 exitBlock() 平移到「整塊都離開地板」的門外位置
-   （見 Board.tsx 的 computeExitClearSteps()），這裡負責滑到那個位置同時
-   淡出（transform + opacity 同一個 transition 一起跑），停用互動游標。
-   時長吃 --exit-slide-ms（由 Board.tsx 依這次離場實際滑行的格數 ×
-   EXIT_STEP_MS 算出，每次離場可能不同，所以是內聯設在該方塊 wrapper 上，
-   不是設在 .board 那種全域共用值）。不再用誇張的「膨脹
-   →旋轉炸裂」（原本的 blockPopOut）單次爆開——那個效果現在交給 Board.tsx
-   在滑行途中持續補上的粉粒噴發波次做，方塊本體只需要單純滑出＋淡出，跟
-   粉粒噴發的節奏才不會互相搶戲。實際從畫面上移除交給 Board.tsx 的
-   setTimeout（跟這裡的 transition 時長同步）。
+   （見 Board.tsx 的 computeExitClearSteps()），這裡負責滑到那個位置，停用
+   互動游標。時長吃 --exit-slide-ms（由 Board.tsx 依這次離場實際滑行的格數
+   × EXIT_STEP_MS 算出，每次離場可能不同，所以是內聯設在該方塊 wrapper
+   上，不是設在 .board 那種全域共用值）。不再用誇張的「膨脹→旋轉炸裂」
+   （原本的 blockPopOut）單次爆開——那個效果現在交給 Board.tsx 在滑行途中
+   持續補上的粉粒噴發波次做，方塊本體只需要單純滑出，跟粉粒噴發的節奏才不
+   會互相搶戲。實際從畫面上移除交給 Board.tsx 的 setTimeout（跟這裡的動畫
+   時長同步）。
 
-   .exiting 只放「不會變動」的靜態樣式（游標／transition 宣告）；淡出的
-   目標 opacity: 0 特地拆到下面的 .exitingSlide，且只在 Board.tsx 的
-   sliding 狀態翻 true 那一刻才加上這個 class。原因：.exiting 這個
-   class 是這個 wrapper 元素「第一次掛載」就帶著的（見 Board.tsx 的
-   ExitingBlock.sliding 註解），如果 opacity: 0 直接寫在 .exiting 上，
-   瀏覽器會把它當成這個全新元素的初始樣式（沒有「前一次 paint」可以
-   transition from），畫面上就是瞬間不可見，而不是真的淡出——這正是
-   「調到 500ms 還是完全看不到過程」的另一半原因（另一半是 transform，
-   已經用同樣的兩階段套用手法解決）。 */
+   方塊「超出門的範圍就看不見」不是靠 opacity 淡出做的——opacity 只能照
+   時間軸猜個大概时机，跟方塊實際滑到哪個像素位置對不上（使用者反饋：滑出
+   去一大截了還看得到）。真正負責遮住超出範圍部分的是 .blockClipLayer 的
+   clip-path（見下方），這裡只維持不變動的靜態樣式（游標／transform
+   transition 宣告）；真正觸發滑動的是 Board.tsx 的 exitBlock() 用
+   setTimeout 延遲一拍才把 cells 換成 exitedCells（見該處註解），不是靠
+   加減 class。.exiting 是這個 wrapper 元素「第一次掛載」就帶著的，如果
+   一開始就直接掛終點的 cells，等於全新掛載，瀏覽器沒有「上一個位置」可以
+   transition，畫面上就是瞬間出現在終點、看不到滑動過程。 */
 .blockWrapper.exiting {
   pointer-events: none;
   cursor: default;
-  transition:
-    transform var(--exit-slide-ms, 300ms) ease-in,
-    opacity var(--exit-slide-ms, 300ms) ease-in;
+  transition: transform var(--exit-slide-ms, 300ms) ease-in;
 }
 
-.blockWrapper.exitingSlide {
-  opacity: 0;
+/* 方塊本體（可拖曳中＋離場中）都關在這一層裡，用 clip-path 卡出「門的範圍」
+   ——inset() 用負值會把裁切邊界往外推，推出去的量是 BOUNDARY_THICKNESS
+   （跟 Board.tsx 的同名常數同一個比例，門的圓角膠囊本來就是往外凸這麼多，
+   見 edgeStyle()），所以方塊貼著門、甚至還蓋在門膠囊上時仍然看得到，一旦
+   完全滑過這個邊界才會被裁掉、瞬間看不見——是實際的空間邊界，不是用時間去
+   猜。門本身、牆、地板、粉粒都是 .board 的直接子元素、不在這層裡，才不會
+   被一起裁掉：門要維持凸出格子外露出的視覺，粉粒本來就該噴得比門更遠。
+   pointer-events: none 沿用跟 .blockWrapper 一樣的手法（見上面的說明），
+   讓事件仍能命中裡面 .blockFill 再冒泡上去，不影響拖曳。 */
+.blockClipLayer {
+  position: absolute;
+  inset: 0;
+  clip-path: inset(calc(-1 * var(--cell-size) * 0.22));
+  pointer-events: none;
 }
 
 @keyframes blockPopIn {
@@ -482,9 +490,8 @@
   }
 }
 
-/* 整塊方塊共用一次的閃光＋衝擊波，跟上面逐格噴發的 .crumb 疊在一起，強化
-   爆炸的「第一擊」——手法一樣沿用 block-style-prototype.html 的
-   spark .flash / .ring。 */
+/* 整塊方塊共用一次的閃光，跟上面逐格噴發的 .crumb 疊在一起，強化爆炸的
+   「第一擊」——手法沿用 block-style-prototype.html 的 spark .flash。 */
 .crumbFlash {
   position: absolute;
   top: 0;
@@ -506,32 +513,6 @@
   100% {
     opacity: 0;
     transform: translate(-50%, -50%) scale(2.4);
-  }
-}
-
-.crumbRing {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: var(--cell-size);
-  height: var(--cell-size);
-  border-radius: 50%;
-  border: 4px solid var(--dot-color, #fff);
-  transform: translate(-50%, -50%) scale(0.3);
-  opacity: 0;
-  animation: crumbRing 700ms cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
-}
-
-@keyframes crumbRing {
-  0% {
-    opacity: 0.9;
-    transform: translate(-50%, -50%) scale(0.3);
-    border-width: 5px;
-  }
-  100% {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(2.6);
-    border-width: 0.5px;
   }
 }
 
