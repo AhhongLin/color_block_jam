@@ -358,10 +358,25 @@
   animation-delay: var(--pop-delay, 0ms);
 }
 
+/* 高光橢圓（形狀、35%/30% 光源角度）尺寸固定成 --cell-size 的倍率，不隨
+   方塊總高度縮放——早期版本用整個 bounding box 的百分比定位/定尺寸，垂直
+   長度 1 格時比例剛好，長度拉到 2、3 格時同一組百分比會被整個拉長，變成
+   一條假假的光斑。
+   位置改用 --shine-x/--shine-y/--shine-w（Board.tsx 算出，見該處
+   shineAnchor/shineTopRowSpan 註解）：--shine-x/--shine-y 是「形狀最上
+   列、同列最左邊」那個真實存在的格子的像素位移（凹形方塊如 L 形的
+   bounding box 左上角可能不屬於形狀本體，硬釘在那裡高光會被 clip-path
+   切一半），--shine-w 是從那一格起算、頂端那一整列實際連續延伸幾格的
+   寬度。頂端剛好一格寬的直條方塊，高光縮成單格尺寸；頂端本來就有好幾格
+   寬的方塊（橫向方塊、T 形頂端一整排），高光照樣跨滿那整排寬度，不會被
+   誤縮成一格。 */
 .blockFill::before {
   content: "";
   position: absolute;
-  inset: 6% 10% 58% 10%;
+  top: calc(var(--shine-y, 0px) + var(--cell-size) * 0.06);
+  left: calc(var(--shine-x, 0px) + var(--shine-w, var(--cell-size)) * 0.1);
+  width: calc(var(--shine-w, var(--cell-size)) * 0.8);
+  height: calc(var(--cell-size) * 0.36);
   border-radius: 50%;
   background: radial-gradient(ellipse at 35% 30%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0) 70%);
 }

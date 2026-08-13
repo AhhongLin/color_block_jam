@@ -1,7 +1,9 @@
 // 把一個方塊的所有格子描成一整圈邊界（假設方塊本身單一連通、不帶洞——
 // 現有關卡資料的方塊都符合這個假設），再轉成一份 clip-path 的 SVG path
-// 字串，讓整個方塊只用一個 DOM 節點畫出來，凹角維持直角、凸角套圓角——
-// 這樣同一個方塊的視覺呈現才會是一個整體，而不是好幾個格子拼起來的。
+// 字串，讓整個方塊只用一個 DOM 節點畫出來，凹角、凸角都套同一個半徑的
+// 圓角（只是轉向相反，見 buildPolygonPathData 的 sweep-flag 註解）——這樣
+// 同一個方塊的視覺呈現才會是一個整體、輪廓處處等寬圓潤，而不是好幾個格子
+// 拼起來、L 形內凹角卻留著一個尖角的樣子。
 //
 // 座標系統：cells 一律用「相對這個方塊 bounding box 左上角」的局部座標
 // （呼叫端自己減掉 anchorRow/anchorCol），輸出的 px 座標也是同一個原點，
@@ -73,8 +75,9 @@ function traceBlockOutline(cells: CellCoord[]): Point[] {
   return corners;
 }
 
-// 順時針多邊形裡，外凸角（該套圓角的那種）跟內凹角（維持直角）可以用叉積
-// 正負號分辨——跟 traceBlockOutline() 用同一個順時針假設。
+// 順時針多邊形裡，外凸角跟內凹角（兩者都套圓角，只是圓弧轉向相反，見
+// buildPolygonPathData）可以用叉積正負號分辨——跟 traceBlockOutline() 用
+// 同一個順時針假設。
 function turnCross(prev: Point, curr: Point, nextPt: Point): number {
   const d1 = { x: curr.col - prev.col, y: curr.row - prev.row };
   const d2 = { x: nextPt.col - curr.col, y: nextPt.row - curr.row };
@@ -131,8 +134,13 @@ function buildPolygonPathData(cells: CellCoord[], cellPitchPx: number, cornerRad
 
     const edgeInLenPx = Math.hypot(curr.row - prev.row, curr.col - prev.col) * cellPitchPx;
     const edgeOutLenPx = Math.hypot(nextPt.row - curr.row, nextPt.col - curr.col) * cellPitchPx;
+    // 凸角往外推 outsetPx 半徑要跟著變大（外推的平行曲線半徑=原半徑+推移
+    // 量），凹角則相反——往外推等於把洞的兩側牆往內夾，半徑要跟著縮小（見
+    // 檔案開頭 buildPolygonPathData 註解「凹角的洞會對應地縮小 outsetPx」），
+    // 縮到 0 以下就不再套圓角（夾到底了）。
     const isConvex = turnCross(prev, curr, nextPt) > 0;
-    const radius = isConvex ? Math.min(cornerRadiusPx + outsetPx, edgeInLenPx / 2, edgeOutLenPx / 2) : 0;
+    const signedRadius = isConvex ? cornerRadiusPx + outsetPx : cornerRadiusPx - outsetPx;
+    const radius = Math.max(0, Math.min(signedRadius, edgeInLenPx / 2, edgeOutLenPx / 2));
 
     if (radius <= 0.5) {
       segments.push(`${i === 0 ? "M" : "L"} ${pCurr.x} ${pCurr.y}`);
@@ -142,8 +150,13 @@ function buildPolygonPathData(cells: CellCoord[], cellPitchPx: number, cornerRad
     const p1 = { x: pCurr.x - inUnit.x * radius, y: pCurr.y - inUnit.y * radius };
     const p2 = { x: pCurr.x + outUnit.x * radius, y: pCurr.y + outUnit.y * radius };
 
+    // 圓弧的轉向要跟這個角本身的轉向一致——凸角在順時針描邊時是往右轉
+    // （順時針轉弧，sweep-flag=1），凹角是往左轉（逆時針轉弧，
+    // sweep-flag=0）。用相反方向的話，弧線會鼓向錯的一側，穿出方塊原本的
+    // 直邊。
+    const sweepFlag = isConvex ? 1 : 0;
     segments.push(`${i === 0 ? "M" : "L"} ${p1.x} ${p1.y}`);
-    segments.push(`A ${radius} ${radius} 0 0 1 ${p2.x} ${p2.y}`);
+    segments.push(`A ${radius} ${radius} 0 0 ${sweepFlag} ${p2.x} ${p2.y}`);
   }
   segments.push("Z");
 
