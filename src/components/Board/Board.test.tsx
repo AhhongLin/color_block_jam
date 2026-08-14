@@ -319,8 +319,8 @@ describe("Board 離場、過關與重設", () => {
     });
 
     // 動畫還沒播完前，方塊仍短暫留在畫面上（正在滑出、炸開），過關訊息也還沒
-    // 出現——要等玩家親眼看到最後一個方塊離開盤面、粉粒飛散完才算過關，不是
-    // 規則上一結算就跳出。
+    // 出現——要等玩家親眼看到最後一個方塊滑出盤面才算過關，不是規則上一結算
+    // 就跳出（不等粉粒飛散完，粉粒尾韻可以在過關橫幅顯示後於背景繼續播完）。
     expect(container.querySelector('[data-block-wrapper-id="a"]')).not.toBeNull();
     expect(screen.queryByRole("status")).toBeNull();
 

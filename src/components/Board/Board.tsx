@@ -517,9 +517,12 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
   }, [cols, rows]);
 
   // 離場動畫還在播放時，方塊在遊戲規則上已經算離場了（blocks 已經不含它），
-  // 但畫面上要等它滑出去、炸開的粉粒也飛散完才顯示「過關」，感覺才像玩家
-  // 親眼看到最後一個方塊離開盤面，而不是粉塵還在飛就先跳出過關橫幅。
-  const isComplete = isLevelComplete(blocks) && exitingBlocks.length === 0 && bursts.length === 0;
+  // 但畫面上要等它滑出去才顯示「過關」，感覺才像玩家親眼看到最後一個方塊
+  // 離開盤面。不等粉粒完全飛散完（bursts）——粉粒尾韻長達 CRUMB_FLY_MS
+  // （2200ms），等它完全清空才彈出過關橫幅會讓玩家覺得「明明方塊都不見了
+  // 卻遲遲沒過關」（使用者反饋：離場後到過關橫幅的間隔過長）；粉粒可以在
+  // 過關橫幅顯示後繼續在背景飛散收尾，不影響觀感。
+  const isComplete = isLevelComplete(blocks) && exitingBlocks.length === 0;
 
   // 用 ref 存放最新的 onComplete，effect 的依賴只放 isComplete——這樣「進入
   // 過關狀態」只通知一次，不會因為父層每次 render 傳進來新的箭頭函式參照
