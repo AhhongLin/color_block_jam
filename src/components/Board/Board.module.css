@@ -182,6 +182,11 @@
   --cell-size: min(15vw, 64px);
   --cell-gap: 2px;
   position: relative;
+  /* 明著給一個 z-index，讓 .board 自己形成一個獨立的疊放環境（stacking
+     context）——不然 .wallBand 的負 z-index（見該 class 註解）會一路往上
+     找到再上一層真正形成疊放環境的祖先節點（可能是 .boardFrame 或更外層），
+     整條色帶就會被畫到 .boardFrame 的背景底下、完全看不到。 */
+  z-index: 0;
   display: grid;
   gap: var(--cell-gap);
   background: #b0b2b8;
@@ -385,48 +390,44 @@
   filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.9));
 }
 
-/* 牆：沿著不規則盤面外圍、沒有門的那一側補一段（座標數學見 Board.tsx 的
-   edgeStyle()），讀起來像圍住格子的實體邊框。用「頂部亮邊 inset + 底部暗邊
-   inset + 外部落影」三層堆出厚度感，色階用黑色系，維持「牆是無機的邊框」、
-   「方塊是有機的糖果」這組對比。 */
-/* border-radius 由 Board.tsx 的 edgeStyle()/edgeRadius() 依相鄰段落動態算出
-   （inline style），讓連續的牆段落接成一整體、只在頭尾露出圓角。 */
-.wall {
+/* 色帶：牆＋門共用的底色，整個地板外圍（可能含內部坑洞）描成一份連續的
+   clip-path 多邊形（見 Board.tsx 的 wallBandClipPath / wallBandShape.ts），
+   一整條圍住地板，門只是疊在上面換色的區塊，不會在門/牆交界處露出縫隙。
+   left/top/width/height 由 Board.tsx 內聯設成量出來的 px 值。 */
+.wallBand {
   position: absolute;
-  top: 0;
-  left: 0;
-  background: linear-gradient(180deg, #3a3a3a, #1c1c1c 55%, #000000);
-  box-shadow:
-    inset 0 2px 0 rgba(255, 255, 255, 0.25),
-    inset 0 -3px 4px rgba(0, 0, 0, 0.5),
-    0 2px 3px -1px rgba(0, 0, 0, 0.45);
+  background: #3f4854;
+  /* 地板格子是 CSS grid 的一般排版元素（沒有設 position），瀏覽器繪製順序
+     一律「先畫完所有一般排版內容，才畫有設 position 的元素」，跟 DOM 先後
+     順序無關——色帶用 position: absolute，就算寫在地板格子的 JSX 前面，
+     沒有 z-index 還是會蓋到地板格子上面。負的 z-index 會把色帶整個扔進
+     「比一般排版內容更底層」那一疊，才能讓色帶乖乖畫在地板格子下面，只
+     露出往外凸出地板以外的那一圈；用負值而不是給 .floor 明著設正的
+     z-index，是為了不去打亂方塊（.blockWrapper 走 computeStackRanks()
+     算出的 z-index，含 0）跟地板之間本來的疊放關係。 */
+  z-index: -2;
 }
 
-/* 門：牆上開的一個長方體開口（座標數學見 Board.tsx 的 edgeStyle()），跟牆
-   一樣是方正的箱型（只是圓角略大一點做出「箱子」感，不是膠囊）。材質用
-   inset 高光/暗邊 + ::before 放射狀玻璃反光，色彩取 currentColor（由
-   .door.red 等 class 設定），維持跟方塊同色系可辨識。 */
-/* border-radius 同樣由 Board.tsx 動態算出——同色相鄰的門段落接成一整體，
-   不同顏色的門即使緊貼也各自保留頭尾圓角。 */
+/* 色帶用的多邊形演算法沿用 blockShape.ts 那套「合併地板格子間縫隙」的簡化
+   （見 wallBandShape.ts 開頭說明），所以色帶的底色會把地板格子之間本來的
+   2px 縫隙也一起填滿——這層負責把色帶「挖空」回地板的真實範圍（完全貼齊
+   地板、不往外推的同一份多邊形），蓋在色帶之上、地板格子之下，縫隙才能
+   露出 .board 本身的灰色背景，不是色帶顏色。z-index 比 .wallBand 高、比
+   一般排版內容（地板格子）低，正好夾在中間。 */
+.wallBandHole {
+  position: absolute;
+  background: #b0b2b8;
+  z-index: -1;
+}
+
+/* 門：疊在色帶上換色的一段（座標數學見 Board.tsx 的 edgeStyle()），素色、
+   直角，沒有漸層/發光/玻璃反光——底下的色帶本身已經是無縫的一整圈，門只
+   要換個顏色就好，不需要額外的材質效果去強調「這裡是門」。 */
 .door {
   position: absolute;
   top: 0;
   left: 0;
   background: currentColor;
-  box-shadow:
-    inset 0 2px 0 rgba(255, 255, 255, 0.6),
-    inset 0 -4px 6px color-mix(in srgb, currentColor 45%, black 55%),
-    0 2px 4px -1px rgba(107, 66, 38, 0.35),
-    0 0 0 2px rgba(255, 255, 255, 0.6),
-    0 0 10px 2px currentColor;
-  overflow: hidden;
-}
-
-.door::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(ellipse 70% 45% at 50% 20%, rgba(255, 255, 255, 0.8), transparent 65%);
 }
 
 .door.red {

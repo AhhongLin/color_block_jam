@@ -14,6 +14,7 @@ import { clampedStepsFromDistance, updateAxisTracker, type Axis, type AxisTracke
 import { findExitDirection, isLevelComplete } from "../../game/exit";
 import { playSound } from "../../audio/sound";
 import { buildBlockClipPath } from "./blockShape";
+import { buildWallBandClipPath } from "./wallBandShape";
 import styles from "./Board.module.css";
 
 interface BoardProps {
@@ -338,69 +339,31 @@ function measureCellPitch(boardEl: HTMLElement, cols: number, rows: number): { c
   };
 }
 
-// 盤面的每一格都要被「牆」或「門」包住：格子邊界（鄰格不是地板）沒有門的
-// 那一側補一段牆，讓不規則盤面的外圍描出一圈完整輪廓，門則是輪廓上開的口。
-// 座標系統跟 blockWrapper 共用（相對於 .board 左上角，單位是「幾個格子」
-// 乘上 --cell-size + --cell-gap）。
-const SIDES: Side[] = ["top", "right", "bottom", "left"];
-const SIDE_DELTA: Record<Side, CellCoord> = {
-  top: [-1, 0],
-  right: [0, 1],
-  bottom: [1, 0],
-  left: [0, -1],
-};
-
+// 牆是一整條連續的色帶（見 wallBandShape.ts），不再逐格畫——門才是逐格畫
+// 的：門疊在色帶上面，只是換色的一段，所以門的定位還是沿用「相對格子邊
+// 界、往外凸出固定厚度」這套座標系統（跟 blockWrapper 共用，單位是「幾個
+// 格子」乘上 --cell-size + --cell-gap）。
 function doorKey(row: number, col: number, side: Side): string {
   return `${row},${col},${side}`;
 }
 
-interface WallSegment {
-  row: number;
-  col: number;
-  side: Side;
-}
-
-// 找出所有「地板邊界、但沒有門」的邊——這些邊要補一段牆。
-function boundaryWalls(cells: CellCoord[], floorSet: Set<string>, doors: Door[]): WallSegment[] {
-  const doorSides = new Set(doors.map((d) => doorKey(d.row, d.col, d.side)));
-  const walls: WallSegment[] = [];
-  for (const [r, c] of cells) {
-    for (const side of SIDES) {
-      const [dr, dc] = SIDE_DELTA[side];
-      if (floorSet.has(cellKey(r + dr, c + dc))) continue; // 內部邊，不是外圍
-      if (doorSides.has(doorKey(r, c, side))) continue; // 這裡是門，不補牆
-      walls.push({ row: r, col: c, side });
-    }
-  }
-  return walls;
-}
-
-// 門跟牆是同一圈輪廓上的兩種段落（一種是實牆、一種是開口），幾何算法完全
-// 一樣：緊貼格子邊界、跟所在格子等寬、往外凸出同樣的厚度，只有顏色/樣式
-// class 不同，所以共用同一個定位函式。
+// 色帶/門共用的凸出厚度——跟 wallBandShape.ts 算色帶 clip-path 用的
+// BOUNDARY_THICKNESS_RATIO 是同一個比例，數值分別用 CSS calc（門的定位）
+// 跟量出來的 px（色帶 clip-path 的座標系統）各自表示一份。
 const BOUNDARY_THICKNESS = "calc(var(--cell-size) * 0.22)";
+const BOUNDARY_THICKNESS_RATIO = 0.22;
 
-// 牆一律連成一體；門則是同色才連成一體——兩者的圓角都只留在「這一串真正
-// 的頭尾」，串中間彼此相鄰的兩端接成直角，長度也順勢補上 --cell-gap 蓋住
-// 縫隙，讀起來才會像一整段牆/一整個門，不是一格格獨立的膠囊貼在一起。
-const WALL_RADIUS = "4px";
-const DOOR_RADIUS = "6px";
+// 色帶本身圓角的比例（相對量出來的 cellPitchPx），色帶是唯一還有圓角的
+// 元素——門疊上去時用直角（見 doorStyle()），才不會在門的邊緣露出色帶的
+// 圓角缺口。跟 Board.module.css 的 .floor { border-radius: 10% } 用同一個
+// 比例，色帶轉角跟背景灰格轉角才會是一致的圓潤程度。
+const BAND_CORNER_RADIUS_RATIO = 0.1;
 
-// 牆/門的「相鄰段」定義：top/bottom 沿著同一 row 往左右找（col-1/col+1），
-// left/right 沿著同一 col 往上下找（row-1/row+1）——跟格子本身怎麼排列
-// 無關，只看沿著這個邊所在的方向。
+// 門跟同色的鄰接門段連成一體時，往「下一段」補上 --cell-gap 蓋住縫隙（門
+// 本身用直角，不需要再算圓角要留在哪一側，見下方 doorStyle()）。
 function edgeNeighborKey(row: number, col: number, side: Side, direction: "prev" | "next"): string {
   const step = direction === "prev" ? -1 : 1;
   return side === "top" || side === "bottom" ? doorKey(row, col + step, side) : doorKey(row + step, col, side);
-}
-
-// 依連接狀態算出四角圓角：橫向段（top/bottom）用左右兩側判斷，縱向段
-// （left/right）用頭尾兩側判斷；接到同類段落的那一側收成直角（0），沒接到
-// 的維持原本圓角，做出「一串只有頭尾是圓的」效果。
-function edgeRadius(side: Side, radius: string, connectedPrev: boolean, connectedNext: boolean): string {
-  const start = connectedPrev ? "0" : radius;
-  const end = connectedNext ? "0" : radius;
-  return side === "top" || side === "bottom" ? `${start} ${end} ${end} ${start}` : `${start} ${start} ${end} ${end}`;
 }
 
 function edgeStyle(row: number, col: number, side: Side, connectedNext: boolean, borderRadius: string): CSSProperties {
@@ -520,22 +483,14 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
   useEffect(() => clearExitTimers, []);
 
   const floorSet = new Set(level.cells.map(([r, c]) => cellKey(r, c)));
-  const walls = boundaryWalls(level.cells, floorSet, level.doors);
-  const wallKeySet = new Set(walls.map((wall) => doorKey(wall.row, wall.col, wall.side)));
   const doorColorByKey = new Map(level.doors.map((door) => [doorKey(door.row, door.col, door.side), door.color]));
 
-  function wallStyle(wall: WallSegment): CSSProperties {
-    const connectedPrev = wallKeySet.has(edgeNeighborKey(wall.row, wall.col, wall.side, "prev"));
-    const connectedNext = wallKeySet.has(edgeNeighborKey(wall.row, wall.col, wall.side, "next"));
-    return edgeStyle(wall.row, wall.col, wall.side, connectedNext, edgeRadius(wall.side, WALL_RADIUS, connectedPrev, connectedNext));
-  }
-
-  // 門只跟「同色」的鄰接門段連成一體——不同顏色的門即使緊貼在一起，也要維持
-  // 各自獨立的圓角，讀起來才分得出是兩個不同顏色的門，不是同一個門。
+  // 門疊在色帶上只是換色的一段，用直角（"0"）——色帶本身已經是無縫的一整圈
+  // （見 wallBandShape.ts），門只要跟同色鄰接門段往「下一段」補上 --cell-gap
+  // 蓋住縫隙即可，不需要再算圓角要留在哪一側。
   function doorStyle(door: Door): CSSProperties {
-    const connectedPrev = doorColorByKey.get(edgeNeighborKey(door.row, door.col, door.side, "prev")) === door.color;
     const connectedNext = doorColorByKey.get(edgeNeighborKey(door.row, door.col, door.side, "next")) === door.color;
-    return edgeStyle(door.row, door.col, door.side, connectedNext, edgeRadius(door.side, DOOR_RADIUS, connectedPrev, connectedNext));
+    return edgeStyle(door.row, door.col, door.side, connectedNext, "0");
   }
 
   const [, maxRow] = minMax(level.cells.map(([r]) => r));
@@ -903,6 +858,27 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
 
   const stackRanks = computeStackRanks(blocks);
 
+  // 整條色帶（牆＋門的底色，見 wallBandShape.ts）用量出來的 cellPitchPx 換算
+  // 成 px 幾何，才能跟 blockShape.ts 那套 clip-path 算法共用同一個座標系統。
+  // wallBandMarginPx 是色帶容器要往外多留多少 px 才能完整包住往外推出去的
+  // 部分（見 wallBandShape.ts 的 origin 參數），跟往外推的量（thickness）
+  // 一樣多就夠。
+  const wallBandThicknessPx = cellPitchPx * BOUNDARY_THICKNESS_RATIO;
+  const wallBandCornerRadiusPx = cellPitchPx * BAND_CORNER_RADIUS_RATIO;
+  const wallBandMarginPx = wallBandThicknessPx;
+  const wallBandClipPath =
+    cellPitchPx > 0
+      ? buildWallBandClipPath(level.cells, cellPitchPx, wallBandCornerRadiusPx, wallBandThicknessPx)
+      : "";
+  // wallBandClipPath 用的多邊形演算法沿用 blockShape.ts 那套「合併地板格子
+  // 間縫隙」的簡化（見 wallBandShape.ts 開頭說明）——對方塊來說縫隙消失是
+  // 想要的效果，但對色帶而言，色帶的底色不該吃掉地板格子之間本來就有的
+  // 2px 縫隙（那些縫隙該露出 .board 本身的灰色背景，不是色帶顏色）。這裡
+  // 額外算一份「完全貼齊地板、不往外推」（outsetPx=0）的同一份多邊形，蓋
+  // 在色帶上面、地板格子下面，把色帶「挖空」回地板的真實範圍，縫隙才能
+  // 露出灰色而不是色帶色。
+  const wallBandHoleClipPath = cellPitchPx > 0 ? buildWallBandClipPath(level.cells, cellPitchPx, 0, 0) : "";
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -928,6 +904,40 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
             gridTemplateRows: `repeat(${rows}, var(--cell-size))`,
           }}
         >
+          {/* 整條色帶：牆＋門共用的底色，一整圈連續多邊形，門只是疊在上面
+              換色的區塊（見下面 level.doors.map），不會在門/牆交界處露出
+              縫隙（見 wallBandShape.ts 開頭說明）。要蓋在地板格子「下面」
+              ——地板格子本身不透明，會蓋掉色帶內側，只露出往外凸出地板
+              以外的那一圈。 */}
+          {wallBandClipPath && (
+            <div
+              className={styles.wallBand}
+              style={{
+                left: `${-wallBandMarginPx}px`,
+                top: `${-wallBandMarginPx}px`,
+                width: `${cols * cellPitchPx + 2 * wallBandMarginPx}px`,
+                height: `${rows * cellPitchPx + 2 * wallBandMarginPx}px`,
+                clipPath: wallBandClipPath,
+              }}
+            />
+          )}
+
+          {/* 把色帶「挖空」回地板的真實範圍（見上面 wallBandHoleClipPath 的
+              註解），蓋在色帶之上、地板格子之下，讓地板格子間的縫隙露出
+              .board 本身的灰色，不是色帶顏色。 */}
+          {wallBandHoleClipPath && (
+            <div
+              className={styles.wallBandHole}
+              style={{
+                left: 0,
+                top: 0,
+                width: `${cols * cellPitchPx}px`,
+                height: `${rows * cellPitchPx}px`,
+                clipPath: wallBandHoleClipPath,
+              }}
+            />
+          )}
+
           {Array.from({ length: rows }, (_, r) =>
             Array.from({ length: cols }, (_, c) => (
               <div
@@ -937,10 +947,6 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
               />
             )),
           )}
-
-          {walls.map((wall) => (
-            <div key={`wall-${wall.row}-${wall.col}-${wall.side}`} className={styles.wall} style={wallStyle(wall)} />
-          ))}
 
           {level.doors.map((door) => (
             <div
