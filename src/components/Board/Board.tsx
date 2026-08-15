@@ -11,7 +11,7 @@ import type { CellCoord, Color, Door, Level, LevelBlock, Side } from "../../type
 import type { Direction } from "../../game/slide";
 import { isLevelComplete } from "../../game/exit";
 import { playSound } from "../../audio/sound";
-import { buildBlockClipPath } from "./blockShape";
+import { buildBlockClipPath, computeShineAnchor } from "./blockShape";
 import { buildWallBandClipPath } from "./wallBandShape";
 import { useExitAnimation, type CrumbDot } from "./useExitAnimation";
 import { useDragGesture, measureCellPitch } from "./useDragGesture";
@@ -297,29 +297,7 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
     const clipPath = cellPitchPx > 0 ? buildBlockClipPath(localCells, cellPitchPx, cornerRadiusPx) : undefined;
     const clipPathOutset =
       cellPitchPx > 0 ? buildBlockClipPath(localCells, cellPitchPx, cornerRadiusPx, BLOCK_OUTSET_PX) : undefined;
-    // .blockFill::before 的高光要釘在「形狀實際存在的那一格」上，不能只釘
-    // 在 bounding box 的左上角——凹形方塊（例如 L 形）bounding box 左上角
-    // 那一格可能根本不屬於這個形狀，硬釘在那裡的高光會被 clip-path 切掉
-    // 一半。這裡從 localCells 裡挑「最上面那一列、同列中最左邊」的格子當
-    // 錨點（一定是形狀真的存在的格子），換算成像素位移傳給 CSS。
-    const shineAnchor = localCells.reduce<CellCoord>((best, cell) => {
-      const [r, c] = cell;
-      const [br, bc] = best;
-      if (r < br || (r === br && c < bc)) return cell;
-      return best;
-    }, localCells[0] ?? [0, 0]);
-    // 高光只有在「頂端剛好一格寬」的形狀（直向長條）才需要縮成單格尺寸，
-    // 避免被拉成一整條假光斑；頂端本來就有好幾格寬的形狀（橫向方塊、T 形
-    // 頂端一整排）要讓高光跨滿整排寬度，不能誤縮成一格。這裡量出「跟錨點
-    // 同一列」的格子一路往右連續延伸幾格，決定高光要跨幾格寬。
-    const shineTopRowSpan =
-      1 +
-      (() => {
-        let span = 0;
-        const occupied = new Set(localCells.map(([r, c]) => `${r},${c}`));
-        while (occupied.has(`${shineAnchor[0]},${shineAnchor[1] + span + 1}`)) span += 1;
-        return span;
-      })();
+    const shine = computeShineAnchor(localCells, cellPitchPx);
     return (
       <div
         key={block.id}
@@ -336,11 +314,11 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
             style={
               {
                 "--block-color": COLOR_HEX[block.color],
-                // 見上方 shineAnchor/shineTopRowSpan 註解，供 .blockFill::before
-                // 的高光定位用。
-                "--shine-x": `${shineAnchor[1] * cellPitchPx}px`,
-                "--shine-y": `${shineAnchor[0] * cellPitchPx}px`,
-                "--shine-w": `${shineTopRowSpan * cellPitchPx}px`,
+                // 見 blockShape.ts 的 computeShineAnchor() 註解，供
+                // .blockFill::before 的高光定位用。
+                "--shine-x": `${shine.xPx}px`,
+                "--shine-y": `${shine.yPx}px`,
+                "--shine-w": `${shine.widthPx}px`,
               } as CSSProperties
             }
           >

@@ -29,3 +29,42 @@ export function buildBlockClipPath(
   const data = buildRoundedPolygonPath(primaryLoop, cellPitchPx, cornerRadiusPx, outsetPx, ORIGIN);
   return data ? `path("${data}")` : "";
 }
+
+export interface ShineAnchor {
+  xPx: number;
+  yPx: number;
+  widthPx: number;
+}
+
+// .blockFill::before 的高光要釘在「形狀實際存在的那一格」上，不能只釘在
+// bounding box 的左上角——凹形方塊（例如 L 形）bounding box 左上角那一格
+// 可能根本不屬於這個形狀，硬釘在那裡的高光會被 clip-path 切掉一半。這裡從
+// cells 裡挑「最上面那一列、同列中最左邊」的格子當錨點（一定是形狀真的存在
+// 的格子），換算成像素位移。
+//
+// 高光只有在「頂端剛好一格寬」的形狀（直向長條）才需要縮成單格尺寸，避免
+// 被拉成一整條假光斑；頂端本來就有好幾格寬的形狀（橫向方塊、T 形頂端一整
+// 排）要讓高光跨滿整排寬度，不能誤縮成一格。這裡量出「跟錨點同一列」的
+// 格子一路往右連續延伸幾格，決定高光要跨幾格寬。
+//
+// 跟 buildBlockClipPath 同一個慣例：吃 cellPitchPx，直接回傳算好的 px 值，
+// 呼叫端不用自己再乘一次。
+export function computeShineAnchor(cells: CellCoord[], cellPitchPx: number): ShineAnchor {
+  const anchor = cells.reduce<CellCoord>((best, cell) => {
+    const [r, c] = cell;
+    const [br, bc] = best;
+    if (r < br || (r === br && c < bc)) return cell;
+    return best;
+  }, cells[0] ?? [0, 0]);
+
+  const occupied = new Set(cells.map(([r, c]) => `${r},${c}`));
+  let span = 0;
+  while (occupied.has(`${anchor[0]},${anchor[1] + span + 1}`)) span += 1;
+  const topRowSpan = 1 + span;
+
+  return {
+    xPx: anchor[1] * cellPitchPx,
+    yPx: anchor[0] * cellPitchPx,
+    widthPx: topRowSpan * cellPitchPx,
+  };
+}
