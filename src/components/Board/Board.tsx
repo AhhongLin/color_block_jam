@@ -5,17 +5,17 @@ import {
   useEffect,
   useState,
   type CSSProperties,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import type { CellCoord, Color, Door, Level, LevelBlock, Side } from "../../types/level";
-import { maxSlideSteps, translateCells, type Direction } from "../../game/slide";
-import { clampedStepsFromDistance, updateAxisTracker, type Axis, type AxisTracker } from "../../game/dragDirection";
-import { findExitDirection, isLevelComplete } from "../../game/exit";
+import type { Direction } from "../../game/slide";
+import { isLevelComplete } from "../../game/exit";
 import { playSound } from "../../audio/sound";
 import { buildBlockClipPath } from "./blockShape";
 import { buildWallBandClipPath } from "./wallBandShape";
 import { useExitAnimation, type CrumbDot } from "./useExitAnimation";
+import { useDragGesture, measureCellPitch } from "./useDragGesture";
+import { computeStackRanks } from "./stackOrder";
 import styles from "./Board.module.css";
 
 interface BoardProps {
@@ -25,9 +25,6 @@ interface BoardProps {
   // 元件，不該直接依賴 react-router 的 Link，改成插槽讓呼叫端自己塞。
   backLink?: ReactNode;
 }
-
-// 位移量小於此門檻視為未拖曳（避免手指/滑鼠微小晃動被誤判成滑動）。
-const DRAG_THRESHOLD_PX = 12;
 
 // 跟 Board.module.css 的 --block-color（透過 Board.tsx 內聯設在
 // .blockShapeGroup 上）同一套色票——離場粉粒是獨立於方塊本體的元素（方塊
@@ -81,61 +78,6 @@ function minMax(values: number[]): [min: number, max: number] {
   return [Math.min(...values), Math.max(...values)];
 }
 
-// 方塊填色層會往上位移做出立體厚度感（見 Board.module.css 的 .blockFill
-// translate(0, -7px)），上下相鄰的兩個方塊因此可能在視覺上互相咬到一點
-// 邊緣——這時畫面上位置較下面（row 較大）的方塊應該蓋住位置較上面（row
-// 較小）的方塊，才符合「越靠近鏡頭前緣的東西擋住後面東西」的直覺。
-function blockFrontRow(block: LevelBlock): number {
-  return Math.max(...block.cells.map(([row]) => row));
-}
-
-// 只看整塊方塊的最下緣 row 還不夠：兩個互相咬合的 L/S 形方塊，各自的
-// 最下緣可能剛好落在同一個 row（例如一個是「左欄下探一格」、另一個是
-// 「右欄下探一格」，整體最下緣一樣深），但兩者實際互相貼齊、視覺上會咬
-// 到彼此的，是它們共用的那一欄——這一欄裡誰的格子比較下面，那一欄的
-// 交界處就該由誰蓋住對方（使用者回報：兩塊方塊整體最下緣同高，但細看
-// 各自方塊在交界那一欄有一格比較低，理應由那一塊蓋住另一塊）。這裡逐欄
-// 算出每個方塊在該欄「最下面那一格」的 row，兩塊方塊共用的欄位中誰的
-// row 比較大，那一塊就該排在後面（畫面上蓋住對方）；多欄意見不一致時
-// 加總取多數決；完全沒有共用欄位（兩塊方塊左右不相鄰）就沒有這種局部
-// 咬合問題，退回用整塊最下緣比較即可。
-function bottomRowByColumn(block: LevelBlock): Map<number, number> {
-  const map = new Map<number, number>();
-  for (const [row, col] of block.cells) {
-    const existing = map.get(col);
-    if (existing === undefined || row > existing) map.set(col, row);
-  }
-  return map;
-}
-
-function compareBlockStackOrder(a: LevelBlock, b: LevelBlock): number {
-  const aBottom = bottomRowByColumn(a);
-  const bBottom = bottomRowByColumn(b);
-  let sharedColumnDiff = 0;
-  for (const [col, aRow] of aBottom) {
-    const bRow = bBottom.get(col);
-    if (bRow !== undefined) sharedColumnDiff += aRow - bRow;
-  }
-  if (sharedColumnDiff !== 0) return sharedColumnDiff;
-  return blockFrontRow(a) - blockFrontRow(b);
-}
-
-// 疊放順序改用 z-index 表達，不能直接把 blocks 陣列依 compareBlockStackOrder
-// 排序後再決定 JSX/DOM 順序——DOM 順序一旦在方塊移動時跟著重新排列，
-// React 會用 insertBefore 把既有節點搬到新的手足順序位置，這個搬動在瀏覽器
-// 裡等同「先從文件移除、再插回」，會把 .blockFill 的 blockPopIn 這種
-// animation-fill-mode: backwards 的進場動畫重新觸發一次，讓旁邊沒被拖曳的
-// 方塊也跟著閃一下（先看到沒被蓋住的深色底座層，動畫播完才變回正常顏色
-// ——使用者反饋：拖曳方塊落定的瞬間，左右相鄰的方塊會閃一下深色）。改成
-// 保持 JSX/DOM 順序穩定（永遠照 blocks 陣列原始順序），疊放順序完全交給
-// inline 的 z-index 表達，就不會有節點被搬動、動畫也就不會被重新觸發。
-function computeStackRanks(blocks: LevelBlock[]): Map<string, number> {
-  const ranked = [...blocks].sort(compareBlockStackOrder);
-  const ranks = new Map<string, number>();
-  ranked.forEach((block, rank) => ranks.set(block.id, rank));
-  return ranks;
-}
-
 // 離場中的方塊、拖曳中的方塊都要蓋過一般靜置中的方塊（離場方塊本來就要
 // 飛出画面、拖曳中的方塊使用者正抓著看，兩者都該在最上層），用比
 // computeStackRanks() 算出的名次（0 起跳、最多就是方塊數量）大上一截的
@@ -151,27 +93,6 @@ function boundingBox(cells: CellCoord[]) {
     anchorCol,
     shapeRows: maxRow - anchorRow + 1,
     shapeCols: maxCol - anchorCol + 1,
-  };
-}
-
-// Pointer capture 讓拖曳中途離開方塊範圍時仍收得到後續的 move/up 事件。
-// 部分測試環境（jsdom）未實作這組 API，忽略失敗即可，不影響實際瀏覽器行為。
-function safelyCapturePointer(target: HTMLElement, pointerId: number, capture: boolean) {
-  try {
-    if (capture) target.setPointerCapture(pointerId);
-    else target.releasePointerCapture(pointerId);
-  } catch {
-    // 忽略未實作 pointer capture 的環境。
-  }
-}
-
-// 量測盤面一格的實際像素間距（含 gap）。用整個盤面容器的 rect 除以格數，而不
-// 是量測單一格子，這樣不管 CSS 用 vw/px 哪種單位都能量出目前實際渲染的大小。
-function measureCellPitch(boardEl: HTMLElement, cols: number, rows: number): { colPitch: number; rowPitch: number } {
-  const rect = boardEl.getBoundingClientRect();
-  return {
-    colPitch: cols > 0 ? rect.width / cols : 0,
-    rowPitch: rows > 0 ? rect.height / rows : 0,
   };
 }
 
@@ -221,84 +142,14 @@ function edgeStyle(row: number, col: number, side: Side, connectedNext: boolean,
   }
 }
 
-interface DragState {
-  blockId: string;
-  pointerId: number;
-  startX: number;
-  startY: number;
-  colPitch: number;
-  rowPitch: number;
-  axisTracker: AxisTracker;
-  // 這次拖曳手勢目前為止已經結算（committed）的方塊格子——不是 React state，
-  // 是拖曳過程中的即時真相來源，因為同一次拖曳中途切軸時需要立刻結算上一段
-  // 再開始算下一段，而 setBlocks 是非同步的，同一個事件處理常式裡讀不到剛
-  // setBlocks 進去的新值。
-  currentCells: CellCoord[];
-}
-
-interface DragResult {
-  direction: Direction;
-  steps: number;
-  offsetXPx: number;
-  offsetYPx: number;
-}
-
-interface DragOffset {
-  blockId: string;
-  offsetXPx: number;
-  offsetYPx: number;
-}
-
-// 把「從按下到目前」的原始像素位移（沿著已判定的軸），換算成：實際方向、
-// 放開當下會停在第幾格（鉗制在 maxSlideSteps 算出的可行範圍內)，以及拖曳中
-// 即時跟手用的像素位移（同樣鉗制，讓方塊視覺上不會被拖過障礙物）。
-//
-// 方向的正負號固定用「從拖曳起點累積的位移」（dx/dy）判斷，不是用 axis 判定
-// 當下那一小段位移的正負號——否則像「往右拖 300px 後，手指往回收一點但仍
-// 停在起點右側 250px」這種情況，會被誤判成「往左」而讓方塊瞬間跳回原地。
-function computeDragResult(
-  levelCells: CellCoord[],
-  blocks: LevelBlock[],
-  blockId: string,
-  axis: Axis,
-  dx: number,
-  dy: number,
-  colPitch: number,
-  rowPitch: number,
-): DragResult {
-  const isHorizontal = axis === "horizontal";
-  const direction: Direction = isHorizontal ? (dx >= 0 ? "right" : "left") : dy >= 0 ? "down" : "up";
-  const pitch = isHorizontal ? colPitch : rowPitch;
-  const steps = maxSlideSteps(levelCells, blocks, blockId, direction);
-
-  const forwardPx = direction === "right" ? dx : direction === "left" ? -dx : direction === "down" ? dy : -dy;
-  const clampedForwardPx = pitch > 0 ? Math.max(0, Math.min(steps * pitch, forwardPx)) : 0;
-  const signedOffsetPx = direction === "left" || direction === "up" ? -clampedForwardPx : clampedForwardPx;
-
-  return {
-    direction,
-    steps: clampedStepsFromDistance(forwardPx, pitch, steps),
-    offsetXPx: isHorizontal ? signedOffsetPx : 0,
-    offsetYPx: isHorizontal ? 0 : signedOffsetPx,
-  };
-}
-
-// 把某個方塊在 blocks 陣列裡的格子換成 override（用來在拖曳過程中，讓碰撞
-// 判定看到「目前已經結算到哪」而不是 React state 裡還沒更新的舊位置）。
-function blocksWithOverride(blocks: LevelBlock[], blockId: string, cells: CellCoord[]): LevelBlock[] {
-  return blocks.map((block) => (block.id === blockId ? { ...block, cells } : block));
-}
-
 export function Board({ level, onComplete, backLink }: BoardProps) {
   const [blocks, setBlocks] = useState<LevelBlock[]>(level.blocks);
-  const [dragOffset, setDragOffset] = useState<DragOffset | null>(null);
   // 方塊是單一剪影（clip-path 沿格子邊界描出的多邊形，見 blockShape.ts），
   // clip-path 的 SVG path 只能吃字面數字，不能塞 var(--cell-size) 這種 calc
-  // 表達式，所以要另外量出目前實際渲染的格距 px 值——量法跟既有的
-  // measureCellPitch() 共用，只是這裡要在畫面尺寸改變時（RWD）持續重量，
+  // 表達式，所以要另外量出目前實際渲染的格距 px 值——量法跟 useDragGesture
+  // 的 measureCellPitch() 共用，只是這裡要在畫面尺寸改變時（RWD）持續重量，
   // 不是只在按下拖曳那一刻量一次。
   const [cellPitchPx, setCellPitchPx] = useState(0);
-  const dragRef = useRef<DragState | null>(null);
   const boardRef = useRef<HTMLDivElement | null>(null);
 
   const floorSet = new Set(level.cells.map(([r, c]) => cellKey(r, c)));
@@ -325,6 +176,30 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
   const [, maxCol] = minMax(level.cells.map(([, c]) => c));
   const rows = maxRow + 1;
   const cols = maxCol + 1;
+
+  function handleMove(blockId: string, nextCells: CellCoord[]) {
+    setBlocks((prev) => prev.map((block) => (block.id === blockId ? { ...block, cells: nextCells } : block)));
+  }
+  function handleExit(block: LevelBlock, direction: Direction) {
+    startExit(block, direction, COLOR_HEX[block.color]);
+  }
+  const {
+    dragOffset,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
+    handlePointerCancel,
+    reset: resetDrag,
+  } = useDragGesture({
+    levelCells: level.cells,
+    levelDoors: level.doors,
+    blocks,
+    cols,
+    rows,
+    boardRef,
+    onMove: handleMove,
+    onExit: handleExit,
+  });
 
   // 用 useLayoutEffect（不是 useEffect）同步量測，讓瀏覽器正式畫出畫面前
   // cellPitchPx 就已經有值——避免掛載那一瞬間方塊因為量不到格距而不畫、
@@ -367,140 +242,8 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
   function resetLevel() {
     playSound("click");
     resetExitAnimation();
-    dragRef.current = null;
-    setDragOffset(null);
+    resetDrag();
     setBlocks(level.blocks);
-  }
-
-  // 把 drag 目前這一段（沿著 axis，從 drag.startX/Y 到 clientX/clientY）結算
-  // 進 drag.currentCells + React state，並把下一段的起點重置到目前指標位置。
-  // 中途切軸時（先水平拖再改垂直拖）靠這個函式讓上一段的移動先落地，玩家才
-  // 會覺得方塊全程都跟著滑鼠走，而不是等放開才算、或切軸時瞬間跳掉。
-  //
-  // 回傳這一段是否讓方塊離場了——離場後方塊已經不在 blocks 裡，呼叫端不能
-  // 再拿 drag 繼續算下一段。
-  function commitSegment(drag: DragState, axis: Axis, clientX: number, clientY: number): boolean {
-    const effectiveBlocks = blocksWithOverride(blocks, drag.blockId, drag.currentCells);
-    const result = computeDragResult(
-      level.cells,
-      effectiveBlocks,
-      drag.blockId,
-      axis,
-      clientX - drag.startX,
-      clientY - drag.startY,
-      drag.colPitch,
-      drag.rowPitch,
-    );
-    let exited = false;
-    if (result.steps > 0) {
-      const nextCells = translateCells(drag.currentCells, result.direction, result.steps);
-      const draggedBlock = blocks.find((block) => block.id === drag.blockId);
-      const movedBlock = draggedBlock && { ...draggedBlock, cells: nextCells };
-      const otherBlocksCells = blocks.filter((block) => block.id !== drag.blockId).flatMap((block) => block.cells);
-      const exitDirection = movedBlock
-        ? findExitDirection(level.cells, level.doors, movedBlock, otherBlocksCells)
-        : null;
-      if (movedBlock && exitDirection) {
-        startExit(movedBlock, exitDirection, COLOR_HEX[movedBlock.color]);
-        exited = true;
-      } else {
-        playSound("move");
-        drag.currentCells = nextCells;
-        setBlocks((prev) => prev.map((block) => (block.id === drag.blockId ? { ...block, cells: nextCells } : block)));
-      }
-    }
-    drag.startX = clientX;
-    drag.startY = clientY;
-    return exited;
-  }
-
-  function handlePointerDown(blockId: string) {
-    return (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (event.pointerType === "mouse" && event.button !== 0) return;
-      // 擋掉瀏覽器對 pointerdown 的預設行為（文字選取／原生拖曳）。若不擋，
-      // 放開後方塊上會留著一段空的文字選取範圍，下一次在同一個方塊上按下時
-      // 瀏覽器會把它判定成「拖曳選取範圍」而觸發原生 dragstart，導致
-      // pointercancel、方塊卡住拖不動、游標還會變成瀏覽器原生的「禁止」圖示。
-      event.preventDefault();
-      const { colPitch, rowPitch } = boardRef.current
-        ? measureCellPitch(boardRef.current, cols, rows)
-        : { colPitch: 0, rowPitch: 0 };
-      const draggedBlock = blocks.find((block) => block.id === blockId);
-      dragRef.current = {
-        blockId,
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        colPitch,
-        rowPitch,
-        axisTracker: { axis: null, anchorX: event.clientX, anchorY: event.clientY },
-        currentCells: draggedBlock ? draggedBlock.cells : [],
-      };
-      safelyCapturePointer(event.currentTarget, event.pointerId, true);
-    };
-  }
-
-  function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-
-    const previousAxis = drag.axisTracker.axis;
-    drag.axisTracker = updateAxisTracker(drag.axisTracker, event.clientX, event.clientY, DRAG_THRESHOLD_PX);
-    const axis = drag.axisTracker.axis;
-    if (!axis) {
-      setDragOffset(null);
-      return;
-    }
-
-    if (previousAxis && axis !== previousAxis) {
-      const exited = commitSegment(drag, previousAxis, event.clientX, event.clientY);
-      if (exited) {
-        dragRef.current = null;
-        setDragOffset(null);
-        return;
-      }
-    }
-
-    const effectiveBlocks = blocksWithOverride(blocks, drag.blockId, drag.currentCells);
-    const result = computeDragResult(
-      level.cells,
-      effectiveBlocks,
-      drag.blockId,
-      axis,
-      event.clientX - drag.startX,
-      event.clientY - drag.startY,
-      drag.colPitch,
-      drag.rowPitch,
-    );
-    setDragOffset({ blockId: drag.blockId, offsetXPx: result.offsetXPx, offsetYPx: result.offsetYPx });
-  }
-
-  function endDrag(event: ReactPointerEvent<HTMLDivElement>) {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    dragRef.current = null;
-    safelyCapturePointer(event.currentTarget, event.pointerId, false);
-    return drag;
-  }
-
-  function handlePointerUp(event: ReactPointerEvent<HTMLDivElement>) {
-    const drag = endDrag(event);
-    setDragOffset(null);
-    if (!drag) return;
-
-    const previousAxis = drag.axisTracker.axis;
-    drag.axisTracker = updateAxisTracker(drag.axisTracker, event.clientX, event.clientY, DRAG_THRESHOLD_PX);
-    const axis = drag.axisTracker.axis;
-    if (!axis) return;
-
-    // 放開這一刻如果剛好切了軸，新軸這一段的位移必然是 0（切換點就是放開點），
-    // 所以只要結算「切換前」那一段就好，不用再多結算一次 0 位移的新軸。
-    commitSegment(drag, previousAxis && axis !== previousAxis ? previousAxis : axis, event.clientX, event.clientY);
-  }
-
-  function handlePointerCancel(event: ReactPointerEvent<HTMLDivElement>) {
-    endDrag(event);
-    setDragOffset(null);
   }
 
   function renderBlockWrapper(
