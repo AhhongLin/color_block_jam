@@ -66,6 +66,43 @@ describe("Board", () => {
     const { container } = render(<Board level={sampleLevel} />);
     expect(container.querySelectorAll("[data-door-color]")).toHaveLength(sampleLevel.doors.length);
   });
+
+  // 門上的白色三角形符號要「朝盤面外」——形狀本身固定畫成尖端朝上（見
+  // Board.module.css 的 .doorArrow），朝向完全由旋轉角度決定，所以四個側邊
+  // 各自轉對角度就是這個符號唯一會出錯的地方。
+  it("points each door's arrow outward from the board", () => {
+    const fourSidedLevel: Level = {
+      id: "door-arrow-test",
+      name: "門符號測試關卡",
+      cells: [
+        [0, 0],
+        [0, 1],
+        [1, 0],
+        [1, 1],
+      ],
+      doors: [
+        { row: 0, col: 0, side: "top", color: "red" },
+        { row: 0, col: 1, side: "right", color: "blue" },
+        { row: 1, col: 1, side: "bottom", color: "green" },
+        { row: 1, col: 0, side: "left", color: "yellow" },
+      ],
+      blocks: [],
+    };
+    const { container } = render(<Board level={fourSidedLevel} />);
+
+    const rotationBySide = Object.fromEntries(
+      Array.from(container.querySelectorAll<HTMLElement>("[data-door-arrow-side]")).map((arrow) => [
+        arrow.dataset.doorArrowSide,
+        arrow.style.transform,
+      ]),
+    );
+    expect(rotationBySide).toEqual({
+      top: "translate(-50%, -50%) rotate(0deg)",
+      right: "translate(-50%, -50%) rotate(90deg)",
+      bottom: "translate(-50%, -50%) rotate(180deg)",
+      left: "translate(-50%, -50%) rotate(270deg)",
+    });
+  });
 });
 
 describe("Board 拖曳互動", () => {

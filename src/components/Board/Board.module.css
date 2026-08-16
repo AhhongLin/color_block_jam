@@ -455,6 +455,17 @@
   color: #7c58df;
 }
 
+/* 門上往外的白色三角形符號（位置/尺寸/旋轉角度都由 Board.tsx 的
+   doorArrowStyle() 內聯算出，見該處註解）：形狀固定畫成尖端朝上，實際朝向
+   靠那邊的 rotate 決定，四個方向共用這一份 clip-path。白色三角壓在飽和的
+   門色上會顯得扁平，補一層淡陰影拉出一點厚度，跟方塊的立體感一致。 */
+.doorArrow {
+  position: absolute;
+  background: #fff;
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+}
+
 /* 離場粉粒：方塊消失瞬間從它所在格子的正中心（Board.tsx 的
    cellCenterStyle()）炸開一圈小碎粒往外飛散、邊飛邊縮小淡出，做出「爆成
    粉塵」的卡通感——手法沿用 block-style-prototype.html 的 spark burst

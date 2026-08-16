@@ -142,6 +142,34 @@ function edgeStyle(row: number, col: number, side: Side, connectedNext: boolean,
   }
 }
 
+// 門上往外的白色三角形符號：每一格門一個，浮在門帶（BOUNDARY_THICKNESS）
+// 正中央、尖端朝盤面外，提示「這個顏色的方塊從這裡出去」。尺寸用門帶厚度
+// 的倍數表示，才會跟著 --cell-size 一起縮放（RWD）。
+const DOOR_ARROW_WIDTH = `calc(${BOUNDARY_THICKNESS} * 1.6)`;
+const DOOR_ARROW_HEIGHT = `calc(${BOUNDARY_THICKNESS} * 0.7)`;
+
+// 三角形本身固定畫成尖端朝上（clip-path 見 Board.module.css 的
+// .doorArrow），四個方向共用同一份形狀，只靠 rotate 轉到該側朝外的角度。
+const DOOR_ARROW_ROTATION: Record<Side, number> = { top: 0, right: 90, bottom: 180, left: 270 };
+
+// 定位是相對「門這個元素自己的 box」。沿著門方向刻意用 var(--cell-size) / 2
+// 而不是門元素的一半——連成一體的門段會往下一段多補一份 --cell-gap（見
+// edgeStyle() 的 runLength），用元素的一半會讓符號整個偏掉半個縫；用格子
+// 的一半才會對齊每一格的正中央，一格一個。
+function doorArrowStyle(side: Side): CSSProperties {
+  const alongCenter = "calc(var(--cell-size) / 2)";
+  const acrossCenter = `calc(${BOUNDARY_THICKNESS} / 2)`;
+  const isHorizontalBand = side === "top" || side === "bottom";
+  return {
+    left: isHorizontalBand ? alongCenter : acrossCenter,
+    top: isHorizontalBand ? acrossCenter : alongCenter,
+    width: DOOR_ARROW_WIDTH,
+    height: DOOR_ARROW_HEIGHT,
+    // 先 translate 把自己的中心對到上面算出的那一點，再繞自己的中心轉。
+    transform: `translate(-50%, -50%) rotate(${DOOR_ARROW_ROTATION[side]}deg)`,
+  };
+}
+
 export function Board({ level, onComplete, backLink }: BoardProps) {
   const [blocks, setBlocks] = useState<LevelBlock[]>(level.blocks);
   // 方塊是單一剪影（clip-path 沿格子邊界描出的多邊形，見 blockShape.ts），
@@ -439,7 +467,13 @@ export function Board({ level, onComplete, backLink }: BoardProps) {
               data-door-color={door.color}
               className={`${styles.door} ${styles[door.color]}`}
               style={doorStyle(door)}
-            />
+            >
+              <span
+                data-door-arrow-side={door.side}
+                className={styles.doorArrow}
+                style={doorArrowStyle(door.side)}
+              />
+            </div>
           ))}
 
           {/* 方塊本體（可拖曳中＋離場中）都關在這一層裡，讓 Board.module.css
