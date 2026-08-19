@@ -16,18 +16,10 @@
   </head>
   <body>
     <div id="root"></div>
-    <script>
-      // GitHub Pages SPA fallback (see public/404.html): 404.html stashes the
-      // real URL in sessionStorage and bounces here; restore it before React
-      // Router mounts and reads window.location.
-      (function () {
-        var redirect = sessionStorage.redirect;
-        delete sessionStorage.redirect;
-        if (redirect && redirect !== location.href) {
-          history.replaceState(null, "", redirect);
-        }
-      })();
-    </script>
+    <!-- GitHub Pages 深層連結的還原不在這裡做了——它現在是 bundle 裡的
+         restoreDeepLink()，由 src/main.tsx 在 createRoot() 之前呼叫。搬進
+         bundle 是為了讓它測得到（見 src/launch/launchPath.test.ts）；時間點
+         一樣來得及，因為 React Router 是 render 當下才讀 location。 -->
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

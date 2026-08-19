@@ -6,6 +6,7 @@
   "scripts": {
     "start": "vite --port 3000",
     "build": "tsc -b && vite build",
+    "verify:build": "node scripts/verify-build.mjs",
     "preview": "vite preview",
     "lint": "tsc -b --noEmit",
     "test": "vitest run",

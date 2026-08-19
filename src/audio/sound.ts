@@ -1,13 +1,16 @@
+import { assetUrl } from "../launch/launchPath";
+
 export type SoundName = "move" | "exit" | "complete" | "click";
 
-// GitHub Pages 部署在子路徑（vite.config 的 base），public/ 底下的資源要透過
-// import.meta.env.BASE_URL 組出正確路徑；寫死 "/sounds/..." 在 build 之後會
-// 指到錯的路徑（本機開發 base 是 "/"，build 後是 "/color-block-jam/"）。
-const SOUND_SOURCES: Record<SoundName, string> = {
-  move: `${import.meta.env.BASE_URL}sounds/move.mp3`,
-  exit: `${import.meta.env.BASE_URL}sounds/exit.mp3`,
-  complete: `${import.meta.env.BASE_URL}sounds/complete.mp3`,
-  click: `${import.meta.env.BASE_URL}sounds/click.mp3`,
+// 只記「相對 public/ 的檔名」，前面掛哪個 base 由 assetUrl() 決定（見
+// src/launch/launchPath.ts）——GitHub Pages 部署在子路徑底下，寫死
+// "/sounds/..." 在 build 之後會指到錯的地方。路徑在真的要播時才組出來，不在
+// module load 那一刻固化。
+const SOUND_FILES: Record<SoundName, string> = {
+  move: "sounds/move.mp3",
+  exit: "sounds/exit.mp3",
+  complete: "sounds/complete.mp3",
+  click: "sounds/click.mp3",
 };
 
 interface AudioLike {
@@ -35,7 +38,7 @@ export function createSoundPlayer(createAudio: AudioFactory = defaultAudioFactor
   function getAudio(name: SoundName): AudioLike {
     let audio = cache.get(name);
     if (!audio) {
-      audio = createAudio(SOUND_SOURCES[name]);
+      audio = createAudio(assetUrl(SOUND_FILES[name]));
       cache.set(name, audio);
     }
     return audio;
