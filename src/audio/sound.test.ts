@@ -40,6 +40,14 @@ describe("playSound", () => {
     expect(instances[0].playCallCount).toBe(2);
   });
 
+  it("音檔路徑經過 assetUrl，掛上目前的 base（測試環境是 \"/\"）", () => {
+    const { playSound, instances } = setup();
+    playSound("move");
+    // base 本身在各種值底下的行為由 launchPath.test.ts 驗；這裡只確認 sound.ts
+    // 真的走了 assetUrl，而不是又自己拼一次路徑。
+    expect(instances[0].src).toBe(`${import.meta.env.BASE_URL}sounds/move.mp3`);
+  });
+
   it("不同音效各自建立獨立的 Audio 元素", () => {
     const { playSound, instances } = setup();
     playSound("move");

@@ -1,0 +1,53 @@
+name: Deploy to GitHub Pages
+
+# GitHub Pages 的 Settings → Pages → Source 要設成 "GitHub Actions"，這個
+# workflow 才會生效（設成 "Deploy from a branch" 的話它會被忽略）。
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同時只跑一份部署；排隊中的舊 commit 直接取消，最後上線的一定是最新的。
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
+      - run: npm run build
+
+      # base 是字串，編譯期驗不到——這一步把「正式站整片空白」變成 CI 的紅燈。
+      # 它會拿 git remote 推出來的 repo 名去對產物裡的 base，所以要先 checkout。
+      - run: npm run verify:build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

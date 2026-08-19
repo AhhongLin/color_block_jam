@@ -7,7 +7,17 @@
     "allowSyntheticDefaultImports": true,
     "strict": true,
     "noEmit": true,
-    "types": ["node"]
+    // vite/client 是為了下面 include 進來的 launchPath.ts——它讀
+    // import.meta.env.BASE_URL，那個型別由 vite/client 宣告，而 app 專案是靠
+    // src/vite-env.d.ts 拿到的（不在本專案的 include 裡）。node 這邊執行時其實
+    // 沒有 import.meta.env，所以 launchPath.ts 一律把讀 env 的動作留在函式體
+    // 內，vite.config.ts 只呼叫 fallbackHtml()，不會踩到。
+    "types": ["node", "vite/client"]
   },
-  "include": ["vite.config.ts"]
+  // vite.config.ts 匯入 launchPath.ts 去產生 404.html（跟 app 端共用同一把
+  // sessionStorage key）。composite 專案要求「所有被編譯的檔都要列出來」，
+  // 少了這一行就是 TS6307: File ... is not listed within the file list of
+  // project。這個檔同時也在 tsconfig.app.json 的 include（"src"）裡，兩邊都
+  // 列是刻意的。
+  "include": ["vite.config.ts", "src/launch/launchPath.ts"]
 }
